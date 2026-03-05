@@ -1,0 +1,11 @@
+[project]
+name = "node-drag-watcher"
+version = "0.1.0"
+description = "Watch OSM augmented diffs for accidental node drags"
+requires-python = ">=3.12"
+dependencies = [
+    "requests>=2.31",
+]
+
+[project.scripts]
+node-drag-watcher = "watcher:main"

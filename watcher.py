@@ -197,10 +197,38 @@ def write_state(state_file, seq):
         f.write(str(seq))
 
 
+def filter_drags(drags):
+    """Filter out likely intentional edits.
+
+    If a changeset has more than 1 distinct dragged node, it's probably
+    intentional road realignment, not an accidental drag.
+    """
+    # Count distinct nodes per changeset
+    nodes_per_changeset = {}
+    for drag in drags:
+        cs = drag["changeset"]
+        node = drag["node_id"]
+        nodes_per_changeset.setdefault(cs, set()).add(node)
+
+    # Only keep drags from changesets with exactly 1 distinct node
+    kept = []
+    for drag in drags:
+        cs = drag["changeset"]
+        if len(nodes_per_changeset[cs]) == 1:
+            kept.append(drag)
+        else:
+            log.debug(
+                "Suppressing drag on way %s: changeset %s has %d distinct nodes moved (likely intentional)",
+                drag["way_id"], cs, len(nodes_per_changeset[cs]),
+            )
+    return kept
+
+
 def process_adiff(url, threshold_meters, webhook_url=None):
     """Fetch an adiff, detect drags, and optionally alert."""
     root = fetch_adiff(url)
     drags = detect_node_drags(root, threshold_meters=threshold_meters)
+    drags = filter_drags(drags)
     for drag in drags:
         log.info(
             "Node drag: way %s node %s moved %.1fm (changeset %s by %s)",

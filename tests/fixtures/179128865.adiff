@@ -1,0 +1,327 @@
+<?xml version="1.0" encoding="utf-8"?>
+<osm version="0.6" generator="osmcha" copyright="OpenStreetMap and contributors" attribution="http://www.openstreetmap.org/copyright" license="http://opendatacommons.org/licenses/odbl/1-0/">
+  <action type="modify">
+    <old>
+      <node id="5997673372" version="2" lon="21.2118568" lat="45.7453341"/>
+    </old>
+    <new>
+      <node id="5997673372" version="3" timestamp="2026-02-27T12:17:37Z" uid="2287200" user="Buraddo" changeset="179128865" lat="45.7453342" lon="21.2118569"/>
+    </new>
+  </action>
+  <action type="modify">
+    <old>
+      <node id="5997673373" version="2" lon="21.2116848" lat="45.7455884"/>
+    </old>
+    <new>
+      <node id="5997673373" version="3" timestamp="2026-02-27T12:17:37Z" uid="2287200" user="Buraddo" changeset="179128865" lat="45.7455885" lon="21.2116846"/>
+    </new>
+  </action>
+  <action type="modify">
+    <old>
+      <node id="5997673377" version="2" lon="21.2115176" lat="45.7452224"/>
+    </old>
+    <new>
+      <node id="5997673377" version="3" timestamp="2026-02-27T12:17:37Z" uid="2287200" user="Buraddo" changeset="179128865" lat="45.7452223" lon="21.2115178"/>
+    </new>
+  </action>
+  <action type="modify">
+    <old>
+      <node id="5997673378" version="2" lon="21.211149" lat="45.7457665"/>
+    </old>
+    <new>
+      <node id="5997673378" version="3" timestamp="2026-02-27T12:17:37Z" uid="2287200" user="Buraddo" changeset="179128865" lat="45.7457665" lon="21.2111491"/>
+    </new>
+  </action>
+  <action type="modify">
+    <old>
+      <node id="5997673383" version="2" lon="21.2114796" lat="45.7456253"/>
+    </old>
+    <new>
+      <node id="5997673383" version="3" timestamp="2026-02-27T12:17:37Z" uid="2287200" user="Buraddo" changeset="179128865" lat="45.7456253" lon="21.2114797"/>
+    </new>
+  </action>
+  <action type="modify">
+    <old>
+      <node id="12146862665" version="1" lon="21.2113456" lat="45.7454767"/>
+    </old>
+    <new>
+      <node id="12146862665" version="2" timestamp="2026-02-27T12:17:37Z" uid="2287200" user="Buraddo" changeset="179128865" lat="45.7454766" lon="21.2113455"/>
+    </new>
+  </action>
+  <action type="create">
+    <node id="13605374942" version="1" timestamp="2026-02-27T12:17:37Z" uid="2287200" user="Buraddo" changeset="179128865" lat="45.7469238" lon="21.2103041">
+      <tag k="addr:city" v="Timișoara"/>
+      <tag k="addr:housenumber" v="24"/>
+      <tag k="addr:street" v="Bulevardul General Ion Dragalina"/>
+    </node>
+  </action>
+  <action type="create">
+    <node id="13605374943" version="1" timestamp="2026-02-27T12:17:37Z" uid="2287200" user="Buraddo" changeset="179128865" lat="45.7465535" lon="21.2105626">
+      <tag k="addr:city" v="Timișoara"/>
+      <tag k="addr:housenumber" v="22"/>
+      <tag k="addr:street" v="Bulevardul General Ion Dragalina"/>
+    </node>
+  </action>
+  <action type="create">
+    <node id="13605374944" version="1" timestamp="2026-02-27T12:17:37Z" uid="2287200" user="Buraddo" changeset="179128865" lat="45.7463236" lon="21.2107231">
+      <tag k="addr:city" v="Timișoara"/>
+      <tag k="addr:housenumber" v="20"/>
+      <tag k="addr:street" v="Bulevardul General Ion Dragalina"/>
+    </node>
+  </action>
+  <action type="create">
+    <node id="13605374945" version="1" timestamp="2026-02-27T12:17:37Z" uid="2287200" user="Buraddo" changeset="179128865" lat="45.7461667" lon="21.2108327">
+      <tag k="addr:city" v="Timișoara"/>
+      <tag k="addr:housenumber" v="18"/>
+      <tag k="addr:street" v="Bulevardul General Ion Dragalina"/>
+    </node>
+  </action>
+  <action type="create">
+    <node id="13605374946" version="1" timestamp="2026-02-27T12:17:37Z" uid="2287200" user="Buraddo" changeset="179128865" lat="45.745883" lon="21.2110308">
+      <tag k="addr:city" v="Timișoara"/>
+      <tag k="addr:housenumber" v="16"/>
+      <tag k="addr:street" v="Bulevardul General Ion Dragalina"/>
+    </node>
+  </action>
+  <action type="create">
+    <node id="13605374947" version="1" timestamp="2026-02-27T12:17:37Z" uid="2287200" user="Buraddo" changeset="179128865" lat="45.7456858" lon="21.2111685">
+      <tag k="addr:city" v="Timișoara"/>
+      <tag k="addr:housenumber" v="14"/>
+      <tag k="addr:street" v="Bulevardul General Ion Dragalina"/>
+    </node>
+  </action>
+  <action type="create">
+    <node id="13605374948" version="1" timestamp="2026-02-27T12:17:37Z" uid="2287200" user="Buraddo" changeset="179128865" lat="45.7456775" lon="21.2114131"/>
+  </action>
+  <action type="create">
+    <node id="13605374949" version="1" timestamp="2026-02-27T12:17:37Z" uid="2287200" user="Buraddo" changeset="179128865" lat="45.7456225" lon="21.2112466"/>
+  </action>
+  <action type="create">
+    <node id="13605374950" version="1" timestamp="2026-02-27T12:17:37Z" uid="2287200" user="Buraddo" changeset="179128865" lat="45.7455481" lon="21.2112647">
+      <tag k="addr:city" v="Timișoara"/>
+      <tag k="addr:housenumber" v="12"/>
+      <tag k="addr:street" v="Bulevardul General Ion Dragalina"/>
+    </node>
+  </action>
+  <action type="create">
+    <node id="13605374951" version="1" timestamp="2026-02-27T12:17:37Z" uid="2287200" user="Buraddo" changeset="179128865" lat="45.7453393" lon="21.2114105">
+      <tag k="addr:city" v="Timișoara"/>
+      <tag k="addr:housenumber" v="10"/>
+      <tag k="addr:street" v="Bulevardul General Ion Dragalina"/>
+    </node>
+  </action>
+  <action type="modify">
+    <old>
+      <way id="635945040" version="2" user="Buraddo" uid="2287200" timestamp="2024-08-30T21:18:09Z" changeset="155992463">
+        <bounds minlat="45.7453341" minlon="21.2116848" maxlat="45.7456703" maxlon="21.2121456"/>
+        <nd ref="5997673365" lon="21.2121456" lat="45.7454295"/>
+        <nd ref="5997673372" lon="21.2118568" lat="45.7453341"/>
+        <nd ref="5997673373" lon="21.2116848" lat="45.7455884"/>
+        <nd ref="5997673374" lon="21.2118204" lat="45.745633"/>
+        <nd ref="5997673375" lon="21.2118294" lat="45.7456198"/>
+        <nd ref="5997673376" lon="21.2119825" lat="45.7456703"/>
+        <nd ref="5997673365" lon="21.2121456" lat="45.7454295"/>
+      </way>
+    </old>
+    <new>
+      <way id="635945040" version="2" user="Buraddo" uid="2287200" timestamp="2024-08-30T21:18:09Z" changeset="155992463">
+        <nd ref="5997673365" lon="21.2121456" lat="45.7454295"/>
+        <nd ref="5997673372" lon="21.2118569" lat="45.7453342"/>
+        <nd ref="5997673373" lon="21.2116846" lat="45.7455885"/>
+        <nd ref="5997673374" lon="21.2118204" lat="45.745633"/>
+        <nd ref="5997673375" lon="21.2118294" lat="45.7456198"/>
+        <nd ref="5997673376" lon="21.2119825" lat="45.7456703"/>
+        <nd ref="5997673365" lon="21.2121456" lat="45.7454295"/>
+      </way>
+    </new>
+  </action>
+  <action type="modify">
+    <old>
+      <way id="635945042" version="2" user="Buraddo" uid="2287200" timestamp="2024-08-30T21:18:09Z" changeset="155992463">
+        <bounds minlat="45.7454767" minlon="21.211149" maxlat="45.7458617" maxlon="21.2115128"/>
+        <nd ref="12146862665" lon="21.2113456" lat="45.7454767"/>
+        <nd ref="5997673378" lon="21.211149" lat="45.7457665"/>
+        <nd ref="5997673422" lon="21.2112466" lat="45.7457987"/>
+        <nd ref="5997673379" lon="21.2114374" lat="45.7458617"/>
+        <nd ref="5997673380" lon="21.2114984" lat="45.7457716"/>
+        <nd ref="5997673381" lon="21.2113766" lat="45.7457314"/>
+        <nd ref="5997673382" lon="21.2114541" lat="45.7456169"/>
+        <nd ref="5997673383" lon="21.2114796" lat="45.7456253"/>
+        <nd ref="5997673384" lon="21.2115128" lat="45.7455765"/>
+        <nd ref="5997673385" lon="21.2114371" lat="45.7455515"/>
+        <nd ref="5997673386" lon="21.2114619" lat="45.745515"/>
+        <nd ref="12146862665" lon="21.2113456" lat="45.7454767"/>
+        <tag k="building" v="yes"/>
+      </way>
+    </old>
+    <new>
+      <way id="635945042" version="3" timestamp="2026-02-27T12:17:37Z" uid="2287200" user="Buraddo" changeset="179128865">
+        <nd ref="13605374948" lon="21.2114131" lat="45.7456775"/>
+        <nd ref="5997673382" lon="21.2114541" lat="45.7456169"/>
+        <nd ref="5997673383" lon="21.2114797" lat="45.7456253"/>
+        <nd ref="5997673384" lon="21.2115128" lat="45.7455765"/>
+        <nd ref="5997673385" lon="21.2114371" lat="45.7455515"/>
+        <nd ref="5997673386" lon="21.2114619" lat="45.745515"/>
+        <nd ref="12146862665" lon="21.2113455" lat="45.7454766"/>
+        <nd ref="13605374949" lon="21.2112466" lat="45.7456225"/>
+        <nd ref="13605374948" lon="21.2114131" lat="45.7456775"/>
+        <tag k="building" v="yes"/>
+      </way>
+    </new>
+  </action>
+  <action type="modify">
+    <old>
+      <way id="635945052" version="2" user="lawrencebanks" uid="3829221" timestamp="2019-03-28T20:06:03Z" changeset="68642038">
+        <bounds minlat="45.7457665" minlon="21.2110059" maxlat="45.7460542" maxlon="21.2112601"/>
+        <nd ref="5997673419" lon="21.2110059" lat="45.7460023"/>
+        <nd ref="5997673378" lon="21.211149" lat="45.7457665"/>
+        <nd ref="5997673422" lon="21.2112466" lat="45.7457987"/>
+        <nd ref="5997673423" lon="21.2111826" lat="45.7459075"/>
+        <nd ref="5997673424" lon="21.2112601" lat="45.7459298"/>
+        <nd ref="5997673420" lon="21.2111867" lat="45.7460542"/>
+        <nd ref="5997673419" lon="21.2110059" lat="45.7460023"/>
+        <tag k="building" v="yes"/>
+      </way>
+    </old>
+    <new>
+      <way id="635945052" version="2" user="lawrencebanks" uid="3829221" timestamp="2019-03-28T20:06:03Z" changeset="68642038">
+        <nd ref="5997673419" lon="21.2110059" lat="45.7460023"/>
+        <nd ref="5997673378" lon="21.2111491" lat="45.7457665"/>
+        <nd ref="5997673422" lon="21.2112466" lat="45.7457987"/>
+        <nd ref="5997673423" lon="21.2111826" lat="45.7459075"/>
+        <nd ref="5997673424" lon="21.2112601" lat="45.7459298"/>
+        <nd ref="5997673420" lon="21.2111867" lat="45.7460542"/>
+        <nd ref="5997673419" lon="21.2110059" lat="45.7460023"/>
+        <tag k="building" v="yes"/>
+      </way>
+    </new>
+  </action>
+  <action type="modify">
+    <old>
+      <way id="1312322360" version="1" user="Buraddo" uid="2287200" timestamp="2024-08-30T21:18:09Z" changeset="155992463">
+        <bounds minlat="45.7452224" minlon="21.2113456" maxlat="45.7455884" maxlon="21.2118568"/>
+        <nd ref="5997673386" lon="21.2114619" lat="45.745515"/>
+        <nd ref="5997673373" lon="21.2116848" lat="45.7455884"/>
+        <nd ref="5997673372" lon="21.2118568" lat="45.7453341"/>
+        <nd ref="5997673377" lon="21.2115176" lat="45.7452224"/>
+        <nd ref="12146862665" lon="21.2113456" lat="45.7454767"/>
+        <nd ref="5997673386" lon="21.2114619" lat="45.745515"/>
+      </way>
+    </old>
+    <new>
+      <way id="1312322360" version="1" user="Buraddo" uid="2287200" timestamp="2024-08-30T21:18:09Z" changeset="155992463">
+        <nd ref="5997673386" lon="21.2114619" lat="45.745515"/>
+        <nd ref="5997673373" lon="21.2116846" lat="45.7455885"/>
+        <nd ref="5997673372" lon="21.2118569" lat="45.7453342"/>
+        <nd ref="5997673377" lon="21.2115178" lat="45.7452223"/>
+        <nd ref="12146862665" lon="21.2113455" lat="45.7454766"/>
+        <nd ref="5997673386" lon="21.2114619" lat="45.745515"/>
+      </way>
+    </new>
+  </action>
+  <action type="create">
+    <way id="1483799426" version="1" timestamp="2026-02-27T12:17:37Z" uid="2287200" user="Buraddo" changeset="179128865">
+      <nd ref="13605374949" lon="21.2112466" lat="45.7456225"/>
+      <nd ref="5997673378" lon="21.2111491" lat="45.7457665"/>
+      <nd ref="5997673422" lon="21.2112466" lat="45.7457987"/>
+      <nd ref="5997673379" lon="21.2114374" lat="45.7458617"/>
+      <nd ref="5997673380" lon="21.2114984" lat="45.7457716"/>
+      <nd ref="5997673381" lon="21.2113766" lat="45.7457314"/>
+      <nd ref="13605374948" lon="21.2114131" lat="45.7456775"/>
+      <nd ref="13605374949" lon="21.2112466" lat="45.7456225"/>
+      <tag k="building" v="yes"/>
+    </way>
+  </action>
+  <action type="modify">
+    <old>
+      <relation id="17990320" version="1" user="Buraddo" uid="2287200" timestamp="2024-08-30T21:18:09Z" changeset="155992463">
+        <bounds minlat="45.7452224" minlon="21.2113456" maxlat="45.7455884" maxlon="21.2118568"/>
+        <member ref="1312322360" role="outer" type="way">
+          <nd lon="21.2114619" lat="45.745515"/>
+          <nd lon="21.2116848" lat="45.7455884"/>
+          <nd lon="21.2118568" lat="45.7453341"/>
+          <nd lon="21.2115176" lat="45.7452224"/>
+          <nd lon="21.2113456" lat="45.7454767"/>
+          <nd lon="21.2114619" lat="45.745515"/>
+        </member>
+        <member ref="1312322361" role="inner" type="way">
+          <nd lon="21.2117109" lat="45.74549"/>
+          <nd lon="21.2117577" lat="45.7454183"/>
+          <nd lon="21.2115458" lat="45.745351"/>
+          <nd lon="21.211499" lat="45.7454226"/>
+          <nd lon="21.2117109" lat="45.74549"/>
+        </member>
+        <tag k="building" v="yes"/>
+        <tag k="type" v="multipolygon"/>
+      </relation>
+    </old>
+    <new>
+      <relation id="17990320" version="1" user="Buraddo" uid="2287200" timestamp="2024-08-30T21:18:09Z" changeset="155992463">
+        <member ref="1312322360" role="outer" type="way">
+          <nd lon="21.2114619" lat="45.745515"/>
+          <nd lon="21.2116846" lat="45.7455885"/>
+          <nd lon="21.2118569" lat="45.7453342"/>
+          <nd lon="21.2115178" lat="45.7452223"/>
+          <nd lon="21.2113455" lat="45.7454766"/>
+          <nd lon="21.2114619" lat="45.745515"/>
+        </member>
+        <member ref="1312322361" role="inner" type="way">
+          <nd lon="21.2117109" lat="45.74549"/>
+          <nd lon="21.2117577" lat="45.7454183"/>
+          <nd lon="21.2115458" lat="45.745351"/>
+          <nd lon="21.211499" lat="45.7454226"/>
+          <nd lon="21.2117109" lat="45.74549"/>
+        </member>
+        <tag k="building" v="yes"/>
+        <tag k="type" v="multipolygon"/>
+      </relation>
+    </new>
+  </action>
+  <action type="modify">
+    <old>
+      <relation id="17990321" version="1" user="Buraddo" uid="2287200" timestamp="2024-08-30T21:18:09Z" changeset="155992463">
+        <bounds minlat="45.7453341" minlon="21.2116848" maxlat="45.7456703" maxlon="21.2121456"/>
+        <member ref="635945040" role="outer" type="way">
+          <nd lon="21.2121456" lat="45.7454295"/>
+          <nd lon="21.2118568" lat="45.7453341"/>
+          <nd lon="21.2116848" lat="45.7455884"/>
+          <nd lon="21.2118204" lat="45.745633"/>
+          <nd lon="21.2118294" lat="45.7456198"/>
+          <nd lon="21.2119825" lat="45.7456703"/>
+          <nd lon="21.2121456" lat="45.7454295"/>
+        </member>
+        <member ref="1312322362" role="inner" type="way">
+          <nd lon="21.2120113" lat="45.745563"/>
+          <nd lon="21.2120402" lat="45.7455213"/>
+          <nd lon="21.2118793" lat="45.745467"/>
+          <nd lon="21.2118503" lat="45.7455087"/>
+          <nd lon="21.2120113" lat="45.745563"/>
+        </member>
+        <tag k="building" v="yes"/>
+        <tag k="type" v="multipolygon"/>
+      </relation>
+    </old>
+    <new>
+      <relation id="17990321" version="1" user="Buraddo" uid="2287200" timestamp="2024-08-30T21:18:09Z" changeset="155992463">
+        <member ref="635945040" role="outer" type="way">
+          <nd lon="21.2121456" lat="45.7454295"/>
+          <nd lon="21.2118569" lat="45.7453342"/>
+          <nd lon="21.2116846" lat="45.7455885"/>
+          <nd lon="21.2118204" lat="45.745633"/>
+          <nd lon="21.2118294" lat="45.7456198"/>
+          <nd lon="21.2119825" lat="45.7456703"/>
+          <nd lon="21.2121456" lat="45.7454295"/>
+        </member>
+        <member ref="1312322362" role="inner" type="way">
+          <nd lon="21.2120113" lat="45.745563"/>
+          <nd lon="21.2120402" lat="45.7455213"/>
+          <nd lon="21.2118793" lat="45.745467"/>
+          <nd lon="21.2118503" lat="45.7455087"/>
+          <nd lon="21.2120113" lat="45.745563"/>
+        </member>
+        <tag k="building" v="yes"/>
+        <tag k="type" v="multipolygon"/>
+      </relation>
+    </new>
+  </action>
+</osm>

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<osm version="0.6">
+  <action type="delete">
+    <old>
+      <node id="11357713787" version="1" lon="-85.8023402" lat="10.3035641" />
+    </old>
+    <new>
+      <node id="11357713787" version="2" timestamp="2026-03-03T22:48:52Z" uid="23895994" user="Ami1500" changeset="179326123" lat="10.3035641" lon="-85.8023402" visible="false" />
+    </new>
+  </action>
+  <action type="modify">
+    <old>
+      <way id="1224710341" version="1" user="DraaRiver" uid="17979775" timestamp="2023-11-17T08:47:03Z" changeset="144128358">
+        <bounds minlat="10.3035641" minlon="-85.8026753" maxlat="10.3041133" maxlon="-85.8023402" />
+        <nd ref="11357713787" lon="-85.8023402" lat="10.3035641" />
+        <nd ref="1048012905" lon="-85.8026753" lat="10.3041133" />
+        <tag k="highway" v="service" />
+      </way>
+    </old>
+    <new>
+      <way id="1224710341" version="2" timestamp="2026-03-03T22:48:52Z" uid="23895994" user="Ami1500" changeset="179326123">
+        <nd ref="11009507471" lon="-85.8012137" lat="10.3004778" />
+        <nd ref="1048012905" lon="-85.8026753" lat="10.3041133" />
+        <tag k="highway" v="service" />
+      </way>
+    </new>
+  </action>
+</osm>

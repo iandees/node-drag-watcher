@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<osm version="0.6">
+  <action type="modify">
+    <old>
+      <node id="11542910653" version="2" lon="12.9783328" lat="47.8369313" />
+    </old>
+    <new>
+      <node id="11542910653" version="3" timestamp="2026-02-27T15:22:29Z" uid="22563502" user="RafaelKiendler128" changeset="179136483" lat="47.8377057" lon="12.9796159" />
+    </new>
+  </action>
+  <action type="modify">
+    <old>
+      <node id="12992129426" version="1" lon="13.0309014" lat="47.8193232" />
+    </old>
+    <new>
+      <node id="12992129426" version="2" timestamp="2026-02-27T15:22:29Z" uid="22563502" user="RafaelKiendler128" changeset="179136483" lat="47.8157931" lon="13.0296461" />
+    </new>
+  </action>
+  <action type="modify">
+    <old>
+      <way id="23711122" version="10" user="Rainero" uid="137242" timestamp="2025-03-09T22:02:46Z" changeset="163419357">
+        <bounds minlat="47.8374242" minlon="12.9794608" maxlat="47.8377283" maxlon="12.9813821" />
+        <nd ref="256755148" lon="12.9813821" lat="47.8374242" />
+        <nd ref="279744986" lon="12.9805074" lat="47.8375753" />
+        <nd ref="1986938842" lon="12.9804057" lat="47.8375907" />
+        <nd ref="256330785" lon="12.9794608" lat="47.8377283" />
+        <tag k="highway" v="residential" />
+        <tag k="maxspeed" v="30" />
+        <tag k="name" v="Goldschmiedgasse" />
+        <tag k="oneway" v="yes" />
+        <tag k="oneway:bicycle" v="no" />
+      </way>
+    </old>
+    <new>
+      <way id="23711122" version="11" timestamp="2026-02-27T15:22:29Z" uid="22563502" user="RafaelKiendler128" changeset="179136483">
+        <nd ref="256755148" lon="12.9813821" lat="47.8374242" />
+        <nd ref="279744986" lon="12.9805074" lat="47.8375753" />
+        <nd ref="1986938842" lon="12.9804057" lat="47.8375907" />
+        <nd ref="11542910653" lon="12.9796159" lat="47.8377057" />
+        <nd ref="256330785" lon="12.9794608" lat="47.8377283" />
+        <tag k="highway" v="residential" />
+        <tag k="maxspeed" v="30" />
+        <tag k="name" v="Goldschmiedgasse" />
+        <tag k="oneway" v="yes" />
+        <tag k="oneway:bicycle" v="no" />
+      </way>
+    </new>
+  </action>
+  <action type="modify">
+    <old>
+      <way id="65737941" version="9" user="soemisch" uid="2290263" timestamp="2025-08-26T14:01:35Z" changeset="171032064">
+        <bounds minlat="47.8367659" minlon="12.9748658" maxlat="47.8374759" maxlon="12.9788232" />
+        <nd ref="801042154" lon="12.9788232" lat="47.8368196" />
+        <nd ref="4366139399" lon="12.9785175" lat="47.836895" />
+        <nd ref="11542910653" lon="12.9783328" lat="47.8369313" />
+        <nd ref="801042123" lon="12.978205" lat="47.8369565" />
+        <nd ref="4366139419" lon="12.9776681" lat="47.8370424" />
+        <nd ref="13098438276" lon="12.9770329" lat="47.837138" />
+        <nd ref="3763645257" lon="12.9767783" lat="47.8371778" />
+        <nd ref="4366139434" lon="12.9764643" lat="47.8372282" />
+        <nd ref="4366139443" lon="12.9760336" lat="47.837293" />
+        <nd ref="12644231108" lon="12.9748877" lat="47.8374759" />
+        <nd ref="978778194" lon="12.9748827" lat="47.8374619" />
+        <nd ref="978778196" lon="12.9748674" lat="47.8374196" />
+        <nd ref="3763645262" lon="12.9748658" lat="47.8374147" />
+        <nd ref="4366139439" lon="12.9758258" lat="47.837258" />
+        <nd ref="3763645146" lon="12.9767597" lat="47.8371185" />
+        <nd ref="13098438275" lon="12.9770139" lat="47.8370793" />
+        <nd ref="3763645117" lon="12.9781703" lat="47.8369022" />
+        <nd ref="11542910655" lon="12.9783022" lat="47.8368752" />
+        <nd ref="4366139395" lon="12.9784632" lat="47.8368423" />
+        <nd ref="3763645093" lon="12.9787857" lat="47.8367659" />
+        <nd ref="801042154" lon="12.9788232" lat="47.8368196" />
+      </way>
+    </old>
+    <new>
+      <way id="65737941" version="9" user="soemisch" uid="2290263" timestamp="2025-08-26T14:01:35Z" changeset="171032064">
+        <nd ref="801042154" lon="12.9788232" lat="47.8368196" />
+        <nd ref="4366139399" lon="12.9785175" lat="47.836895" />
+        <nd ref="11542910653" lon="12.9796159" lat="47.8377057" />
+        <nd ref="801042123" lon="12.978205" lat="47.8369565" />
+        <nd ref="4366139419" lon="12.9776681" lat="47.8370424" />
+        <nd ref="13098438276" lon="12.9770329" lat="47.837138" />
+        <nd ref="3763645257" lon="12.9767783" lat="47.8371778" />
+        <nd ref="4366139434" lon="12.9764643" lat="47.8372282" />
+        <nd ref="4366139443" lon="12.9760336" lat="47.837293" />
+        <nd ref="12644231108" lon="12.9748877" lat="47.8374759" />
+        <nd ref="978778194" lon="12.9748827" lat="47.8374619" />
+        <nd ref="978778196" lon="12.9748674" lat="47.8374196" />
+        <nd ref="3763645262" lon="12.9748658" lat="47.8374147" />
+        <nd ref="4366139439" lon="12.9758258" lat="47.837258" />
+        <nd ref="3763645146" lon="12.9767597" lat="47.8371185" />
+        <nd ref="13098438275" lon="12.9770139" lat="47.8370793" />
+        <nd ref="3763645117" lon="12.9781703" lat="47.8369022" />
+        <nd ref="11542910655" lon="12.9783022" lat="47.8368752" />
+        <nd ref="4366139395" lon="12.9784632" lat="47.8368423" />
+        <nd ref="3763645093" lon="12.9787857" lat="47.8367659" />
+        <nd ref="801042154" lon="12.9788232" lat="47.8368196" />
+      </way>
+    </new>
+  </action>
+  <action type="modify">
+    <old>
+      <way id="1242206585" version="2" user="Zörker" uid="547448" timestamp="2024-03-07T06:29:17Z" changeset="148324913">
+        <bounds minlat="47.8368752" minlon="12.9783022" maxlat="47.8369313" maxlon="12.9783328" />
+        <nd ref="11542910653" lon="12.9783328" lat="47.8369313" />
+        <nd ref="11542910657" lon="12.9783173" lat="47.8369027" />
+        <nd ref="11542910655" lon="12.9783022" lat="47.8368752" />
+        <tag k="highway" v="footway" />
+        <tag k="surface" v="paving_stones" />
+      </way>
+    </old>
+    <new>
+      <way id="1242206585" version="2" user="Zörker" uid="547448" timestamp="2024-03-07T06:29:17Z" changeset="148324913">
+        <nd ref="11542910653" lon="12.9796159" lat="47.8377057" />
+        <nd ref="11542910657" lon="12.9783173" lat="47.8369027" />
+        <nd ref="11542910655" lon="12.9783022" lat="47.8368752" />
+        <tag k="highway" v="footway" />
+        <tag k="surface" v="paving_stones" />
+      </way>
+    </new>
+  </action>
+  <action type="modify">
+    <old>
+      <way id="1311788394" version="4" user="duxxa" uid="632124" timestamp="2025-07-10T10:39:38Z" changeset="168736322">
+        <bounds minlat="47.8185874" minlon="13.0307318" maxlat="47.8196611" maxlon="13.0313039" />
+        <nd ref="248651424" lon="13.0307318" lat="47.8196611" />
+        <nd ref="12992129426" lon="13.0309014" lat="47.8193232" />
+        <nd ref="425767666" lon="13.0309749" lat="47.8191766" />
+        <nd ref="1233980545" lon="13.0310512" lat="47.8190302" />
+        <nd ref="12992129391" lon="13.0310897" lat="47.8189532" />
+        <nd ref="1233980769" lon="13.0312364" lat="47.8186595" />
+        <nd ref="297177237" lon="13.0313039" lat="47.8185874" />
+        <tag k="cycleway:both" v="no" />
+        <tag k="highway" v="residential" />
+        <tag k="lit" v="yes" />
+        <tag k="maxspeed" v="30" />
+        <tag k="name" v="Schießstattstraße" />
+        <tag k="oneway" v="no" />
+        <tag k="sidewalk" v="no" />
+        <tag k="smoothness" v="intermediate" />
+        <tag k="surface" v="asphalt" />
+      </way>
+    </old>
+    <new>
+      <way id="1311788394" version="4" user="duxxa" uid="632124" timestamp="2025-07-10T10:39:38Z" changeset="168736322">
+        <nd ref="248651424" lon="13.0307318" lat="47.8196611" />
+        <nd ref="12992129426" lon="13.0296461" lat="47.8157931" />
+        <nd ref="425767666" lon="13.0309749" lat="47.8191766" />
+        <nd ref="1233980545" lon="13.0310512" lat="47.8190302" />
+        <nd ref="12992129391" lon="13.0310897" lat="47.8189532" />
+        <nd ref="1233980769" lon="13.0312364" lat="47.8186595" />
+        <nd ref="297177237" lon="13.0313039" lat="47.8185874" />
+        <tag k="cycleway:both" v="no" />
+        <tag k="highway" v="residential" />
+        <tag k="lit" v="yes" />
+        <tag k="maxspeed" v="30" />
+        <tag k="name" v="Schießstattstraße" />
+        <tag k="oneway" v="no" />
+        <tag k="sidewalk" v="no" />
+        <tag k="smoothness" v="intermediate" />
+        <tag k="surface" v="asphalt" />
+      </way>
+    </new>
+  </action>
+  <action type="modify">
+    <old>
+      <way id="1413801646" version="1" user="duxxa" uid="632124" timestamp="2025-07-10T10:39:38Z" changeset="168736322">
+        <bounds minlat="47.8191478" minlon="13.0305898" maxlat="47.8193232" maxlon="13.0309014" />
+        <nd ref="12992129425" lon="13.0306394" lat="47.8191478" />
+        <nd ref="12992129402" lon="13.0305898" lat="47.8192486" />
+        <nd ref="12992129426" lon="13.0309014" lat="47.8193232" />
+        <tag k="highway" v="service" />
+        <tag k="service" v="driveway" />
+      </way>
+    </old>
+    <new>
+      <way id="1413801646" version="1" user="duxxa" uid="632124" timestamp="2025-07-10T10:39:38Z" changeset="168736322">
+        <nd ref="12992129425" lon="13.0306394" lat="47.8191478" />
+        <nd ref="12992129402" lon="13.0305898" lat="47.8192486" />
+        <nd ref="12992129426" lon="13.0296461" lat="47.8157931" />
+        <tag k="highway" v="service" />
+        <tag k="service" v="driveway" />
+      </way>
+    </new>
+  </action>
+</osm>

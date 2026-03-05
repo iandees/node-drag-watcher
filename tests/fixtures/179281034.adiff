@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<osm version="0.6">
+  <action type="modify">
+    <old>
+      <node id="9047977114" version="1" lon="-81.3937925" lat="30.1997894" />
+    </old>
+    <new>
+      <node id="9047977114" version="2" timestamp="2026-03-03T02:35:21Z" uid="23880728" user="coleunderpar" changeset="179281034" lat="30.1986644" lon="-81.3934726" />
+    </new>
+  </action>
+  <action type="modify">
+    <old>
+      <way id="847042397" version="3" user="ward95636" uid="8161636" timestamp="2023-03-07T18:00:49Z" changeset="133413378">
+        <bounds minlat="30.1996884" minlon="-81.3939924" maxlat="30.2005174" maxlon="-81.3931425" />
+        <nd ref="7904013538" lon="-81.3939924" lat="30.1998534" />
+        <nd ref="9047977114" lon="-81.3937925" lat="30.1997894" />
+        <nd ref="9047977111" lon="-81.3936115" lat="30.1997314" />
+        <nd ref="7904013539" lon="-81.3934771" lat="30.1996884" />
+        <nd ref="7904013540" lon="-81.3934353" lat="30.199695" />
+        <nd ref="7904013541" lon="-81.3933916" lat="30.1997804" />
+        <nd ref="7904013542" lon="-81.3931425" lat="30.2002931" />
+        <nd ref="7904013543" lon="-81.3931425" lat="30.2003128" />
+        <nd ref="7904013544" lon="-81.3931615" lat="30.2003325" />
+        <nd ref="9047977110" lon="-81.3932917" lat="30.2003807" />
+        <nd ref="9047977112" lon="-81.3934791" lat="30.20045" />
+        <nd ref="6790519328" lon="-81.3936611" lat="30.2005174" />
+        <tag k="highway" v="service" />
+        <tag k="oneway" v="no" />
+        <tag k="service" v="parking_aisle" />
+        <tag k="surface" v="asphalt" />
+      </way>
+    </old>
+    <new>
+      <way id="847042397" version="3" user="ward95636" uid="8161636" timestamp="2023-03-07T18:00:49Z" changeset="133413378">
+        <nd ref="7904013538" lon="-81.3939924" lat="30.1998534" />
+        <nd ref="9047977114" lon="-81.3934726" lat="30.1986644" />
+        <nd ref="9047977111" lon="-81.3936115" lat="30.1997314" />
+        <nd ref="7904013539" lon="-81.3934771" lat="30.1996884" />
+        <nd ref="7904013540" lon="-81.3934353" lat="30.199695" />
+        <nd ref="7904013541" lon="-81.3933916" lat="30.1997804" />
+        <nd ref="7904013542" lon="-81.3931425" lat="30.2002931" />
+        <nd ref="7904013543" lon="-81.3931425" lat="30.2003128" />
+        <nd ref="7904013544" lon="-81.3931615" lat="30.2003325" />
+        <nd ref="9047977110" lon="-81.3932917" lat="30.2003807" />
+        <nd ref="9047977112" lon="-81.3934791" lat="30.20045" />
+        <nd ref="6790519328" lon="-81.3936611" lat="30.2005174" />
+        <tag k="highway" v="service" />
+        <tag k="oneway" v="no" />
+        <tag k="service" v="parking_aisle" />
+        <tag k="surface" v="asphalt" />
+      </way>
+    </new>
+  </action>
+  <action type="modify">
+    <old>
+      <way id="977840130" version="2" user="ward95636" uid="8161636" timestamp="2023-03-07T18:00:49Z" changeset="133413378">
+        <bounds minlat="30.1997894" minlon="-81.3937925" maxlat="30.20045" maxlon="-81.3934791" />
+        <nd ref="9047977112" lon="-81.3934791" lat="30.20045" />
+        <nd ref="9047977113" lon="-81.3936336" lat="30.2001201" />
+        <nd ref="9047977114" lon="-81.3937925" lat="30.1997894" />
+        <tag k="highway" v="service" />
+        <tag k="oneway" v="no" />
+        <tag k="service" v="parking_aisle" />
+        <tag k="surface" v="asphalt" />
+      </way>
+    </old>
+    <new>
+      <way id="977840130" version="2" user="ward95636" uid="8161636" timestamp="2023-03-07T18:00:49Z" changeset="133413378">
+        <nd ref="9047977112" lon="-81.3934791" lat="30.20045" />
+        <nd ref="9047977113" lon="-81.3936336" lat="30.2001201" />
+        <nd ref="9047977114" lon="-81.3934726" lat="30.1986644" />
+        <tag k="highway" v="service" />
+        <tag k="oneway" v="no" />
+        <tag k="service" v="parking_aisle" />
+        <tag k="surface" v="asphalt" />
+      </way>
+    </new>
+  </action>
+</osm>

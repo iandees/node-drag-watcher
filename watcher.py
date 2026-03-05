@@ -35,6 +35,22 @@ def detect_node_drags(root, threshold_meters=10):
 
     Returns a list of dicts with info about each detected drag.
     """
+    # First pass: collect changeset/user info from node modification actions
+    node_info = {}
+    for action in root.findall("action"):
+        if action.get("type") != "modify":
+            continue
+        new = action.find("new")
+        if new is None:
+            continue
+        node = new.find("node")
+        if node is not None:
+            node_info[node.get("id")] = {
+                "changeset": node.get("changeset", ""),
+                "user": node.get("user", ""),
+            }
+
+    # Second pass: look at ways for single-node drags
     drags = []
 
     for action in root.findall("action"):
@@ -81,9 +97,11 @@ def detect_node_drags(root, threshold_meters=10):
                     way_name = tag.get("v", "")
                     break
 
-            # Get changeset/user from the new way element
-            changeset = new_way.get("changeset", "")
-            user = new_way.get("user", "")
+            # Get changeset/user from the node's own action (preferred)
+            # or fall back to the way element
+            info = node_info.get(node_ref, {})
+            changeset = info.get("changeset") or new_way.get("changeset", "")
+            user = info.get("user") or new_way.get("user", "")
 
             drags.append({
                 "way_id": new_way.get("id"),

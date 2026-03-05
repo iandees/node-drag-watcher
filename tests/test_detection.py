@@ -5,8 +5,17 @@ import pytest
 from watcher import detect_node_drags, haversine_distance
 
 # Minimal adiff XML: one way where exactly 1 of 4 nodes moved significantly
+# The node action has different changeset/user than the way (realistic scenario)
 SINGLE_DRAG_ADIFF = """<?xml version="1.0" encoding="UTF-8"?>
 <osm version="0.6">
+  <action type="modify">
+    <old>
+      <node id="2" version="1" lat="40.0010" lon="-74.0010"/>
+    </old>
+    <new>
+      <node id="2" version="2" timestamp="2025-01-01T00:00:00Z" uid="200" user="dragger" changeset="88888" lat="40.0015" lon="-74.0010"/>
+    </new>
+  </action>
   <action type="modify">
     <old>
       <way id="12345" version="5" user="testuser" uid="100" timestamp="2025-01-01T00:00:00Z" changeset="99999">
@@ -100,6 +109,14 @@ DRAG_WITH_OTHER_EDITS_ADIFF = """<?xml version="1.0" encoding="UTF-8"?>
   </action>
   <action type="modify">
     <old>
+      <node id="2" version="1" lat="40.0010" lon="-74.0010"/>
+    </old>
+    <new>
+      <node id="2" version="2" timestamp="2025-01-01T00:00:00Z" uid="100" user="testuser" changeset="99999" lat="40.0015" lon="-74.0010"/>
+    </new>
+  </action>
+  <action type="modify">
+    <old>
       <way id="12345" version="5" user="testuser" uid="100" timestamp="2025-01-01T00:00:00Z" changeset="99999">
         <nd ref="1" lat="40.0000" lon="-74.0000"/>
         <nd ref="2" lat="40.0010" lon="-74.0010"/>
@@ -143,8 +160,8 @@ def test_detects_single_node_drag():
     assert drag["way_id"] == "12345"
     assert drag["node_id"] == "2"
     assert drag["distance_meters"] > 10
-    assert drag["changeset"] == "99999"
-    assert drag["user"] == "testuser"
+    assert drag["changeset"] == "88888"
+    assert drag["user"] == "dragger"
     assert drag["way_name"] == "Test Street"
 
 

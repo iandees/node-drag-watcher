@@ -8,4 +8,4 @@ RUN uv sync --frozen --no-dev
 
 COPY watcher.py .
 
-CMD ["uv", "run", "python", "watcher.py"]
+CMD ["/app/.venv/bin/python", "watcher.py"]

@@ -234,10 +234,14 @@ def run_polling(webhook_url, threshold_meters, state_file):
                 try:
                     process_adiff(url, threshold_meters, webhook_url)
                 except requests.HTTPError as e:
+                    if e.response is not None and e.response.status_code == 404:
+                        # Adiff service lags behind OSM replication;
+                        # stop here and retry on the next loop
+                        log.debug("Sequence %d not yet available, will retry", s)
+                        break
                     log.warning("Failed to fetch sequence %d: %s", s, e)
                 write_state(state_file, s)
-
-            seq = latest
+                seq = s
         except Exception:
             log.exception("Error in polling loop")
 

@@ -30,6 +30,23 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     return R * 2 * math.asin(math.sqrt(a))
 
 
+def angle_at_node(prev, node, next_):
+    """Angle in degrees at `node` formed by prev->node->next.
+
+    Returns 180 for a straight line, smaller for sharper bends.
+    Each argument is a (lat, lon) tuple.
+    """
+    v1 = (prev[0] - node[0], prev[1] - node[1])
+    v2 = (next_[0] - node[0], next_[1] - node[1])
+    dot = v1[0] * v2[0] + v1[1] * v2[1]
+    mag1 = math.sqrt(v1[0] ** 2 + v1[1] ** 2)
+    mag2 = math.sqrt(v2[0] ** 2 + v2[1] ** 2)
+    if mag1 == 0 or mag2 == 0:
+        return 180.0
+    cos_angle = max(-1.0, min(1.0, dot / (mag1 * mag2)))
+    return math.degrees(math.acos(cos_angle))
+
+
 def detect_node_drags(root, threshold_meters=10):
     """Detect single-node drags in an augmented diff XML tree.
 
@@ -116,11 +133,31 @@ def detect_node_drags(root, threshold_meters=10):
                 way_name = tag.get("v", "")
                 break
 
+        # Compute angle at the moved/substituted node
+        new_refs = [ref for ref, _, _ in new_nd_list]
+        old_refs = [ref for ref, _, _ in old_nd_list]
+
         if moved:
             node_ref, distance = moved[0]
             info = node_info.get(node_ref, {})
             changeset = info.get("changeset") or new_way.get("changeset", "")
             user = info.get("user") or new_way.get("user", "")
+
+            # Angle at moved node in old and new geometry
+            old_angle = None
+            new_angle = None
+            if node_ref in old_refs:
+                idx = old_refs.index(node_ref)
+                if 0 < idx < len(old_refs) - 1:
+                    old_angle = round(angle_at_node(
+                        old_nds[old_refs[idx - 1]], old_nds[node_ref], old_nds[old_refs[idx + 1]]
+                    ), 1)
+            if node_ref in new_refs:
+                idx = new_refs.index(node_ref)
+                if 0 < idx < len(new_refs) - 1:
+                    new_angle = round(angle_at_node(
+                        new_nds[new_refs[idx - 1]], new_nds[node_ref], new_nds[new_refs[idx + 1]]
+                    ), 1)
 
             drags.append({
                 "way_id": new_way.get("id"),
@@ -129,13 +166,30 @@ def detect_node_drags(root, threshold_meters=10):
                 "distance_meters": round(distance, 1),
                 "changeset": changeset,
                 "user": user,
+                "old_angle": old_angle,
+                "new_angle": new_angle,
             })
         elif substituted:
             old_ref, new_ref, distance = substituted[0]
-            # Attribution: use the new way's changeset since the way itself
-            # was modified (node list changed)
             changeset = new_way.get("changeset", "")
             user = new_way.get("user", "")
+
+            # Angle at the new node position
+            new_angle = None
+            if new_ref in new_refs:
+                idx = new_refs.index(new_ref)
+                if 0 < idx < len(new_refs) - 1:
+                    new_angle = round(angle_at_node(
+                        new_nds[new_refs[idx - 1]], new_nds[new_ref], new_nds[new_refs[idx + 1]]
+                    ), 1)
+
+            old_angle = None
+            if old_ref in old_refs:
+                idx = old_refs.index(old_ref)
+                if 0 < idx < len(old_refs) - 1:
+                    old_angle = round(angle_at_node(
+                        old_nds[old_refs[idx - 1]], old_nds[old_ref], old_nds[old_refs[idx + 1]]
+                    ), 1)
 
             drags.append({
                 "way_id": new_way.get("id"),
@@ -144,6 +198,8 @@ def detect_node_drags(root, threshold_meters=10):
                 "distance_meters": round(distance, 1),
                 "changeset": changeset,
                 "user": user,
+                "old_angle": old_angle,
+                "new_angle": new_angle,
             })
 
     return drags
@@ -198,29 +254,45 @@ def write_state(state_file, seq):
 
 
 def filter_drags(drags):
-    """Filter out likely intentional edits.
+    """Filter out likely intentional edits using angle analysis.
 
-    If a changeset has more than 1 distinct dragged node, it's probably
-    intentional road realignment, not an accidental drag.
+    A real accidental drag creates a sharp spike in the way geometry —
+    the angle at the dragged node drops dramatically (e.g. from 170° to 5°).
+    Intentional edits (road realignment) maintain smooth geometry.
+
+    For interior nodes: require new_angle < 45° (sharp spike).
+    For endpoint nodes (no angle available): fall back to multi-node heuristic.
     """
-    # Count distinct nodes per changeset
+    # Count distinct nodes per changeset (for endpoint fallback)
     nodes_per_changeset = {}
     for drag in drags:
         cs = drag["changeset"]
         node = drag["node_id"]
         nodes_per_changeset.setdefault(cs, set()).add(node)
 
-    # Only keep drags from changesets with exactly 1 distinct node
     kept = []
     for drag in drags:
-        cs = drag["changeset"]
-        if len(nodes_per_changeset[cs]) == 1:
-            kept.append(drag)
+        new_angle = drag.get("new_angle")
+
+        if new_angle is not None:
+            # Interior node: use angle heuristic
+            if new_angle < 45:
+                kept.append(drag)
+            else:
+                log.debug(
+                    "Suppressing drag on way %s: new_angle=%.1f° (not sharp enough)",
+                    drag["way_id"], new_angle,
+                )
         else:
-            log.debug(
-                "Suppressing drag on way %s: changeset %s has %d distinct nodes moved (likely intentional)",
-                drag["way_id"], cs, len(nodes_per_changeset[cs]),
-            )
+            # Endpoint node: fall back to multi-node heuristic
+            cs = drag["changeset"]
+            if len(nodes_per_changeset[cs]) == 1:
+                kept.append(drag)
+            else:
+                log.debug(
+                    "Suppressing endpoint drag on way %s: changeset %s has %d distinct nodes",
+                    drag["way_id"], cs, len(nodes_per_changeset[cs]),
+                )
     return kept
 
 

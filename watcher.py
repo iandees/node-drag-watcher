@@ -3,6 +3,8 @@
 import math
 import xml.etree.ElementTree as ET
 
+import requests
+
 
 def haversine_distance(lat1, lon1, lat2, lon2):
     """Calculate distance in meters between two lat/lon points."""
@@ -79,3 +81,19 @@ def detect_node_drags(root, threshold_meters=10):
             })
 
     return drags
+
+
+def send_slack_alert(webhook_url, drag):
+    """Post a node drag alert to Slack."""
+    way_label = f"way {drag['way_id']}"
+    if drag["way_name"]:
+        way_label += f" ({drag['way_name']})"
+
+    text = (
+        f":warning: Possible node drag detected\n"
+        f"*{way_label}*: node {drag['node_id']} moved {drag['distance_meters']}m\n"
+        f"User: {drag['user']} | "
+        f"<https://osmcha.org/changesets/{drag['changeset']}|Changeset {drag['changeset']}> | "
+        f"<https://www.openstreetmap.org/node/{drag['node_id']}|Node {drag['node_id']}>"
+    )
+    requests.post(webhook_url, json={"text": text}, timeout=10)

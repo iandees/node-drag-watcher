@@ -188,3 +188,66 @@ def test_drag_detected_alongside_other_edits():
     drags = detect_node_drags(root, threshold_meters=10)
     assert len(drags) == 1
     assert drags[0]["node_id"] == "2"
+
+
+# Node substitution: user drags node onto another node, editor merges them,
+# so the way's node list has a ref swapped out for a different ref far away
+NODE_SUBSTITUTION_ADIFF = """<?xml version="1.0" encoding="UTF-8"?>
+<osm version="0.6">
+  <action type="modify">
+    <old>
+      <way id="99999" version="1" user="olduser" uid="1" timestamp="2024-01-01T00:00:00Z" changeset="11111">
+        <nd ref="100" lat="10.3036" lon="-85.8023"/>
+        <nd ref="200" lat="10.3041" lon="-85.8027"/>
+        <tag k="highway" v="service"/>
+      </way>
+    </old>
+    <new>
+      <way id="99999" version="2" timestamp="2025-01-01T00:00:00Z" uid="500" user="draguser" changeset="55555">
+        <nd ref="300" lat="10.3005" lon="-85.8012"/>
+        <nd ref="200" lat="10.3041" lon="-85.8027"/>
+        <tag k="highway" v="service"/>
+      </way>
+    </new>
+  </action>
+</osm>"""
+
+
+def test_detects_node_substitution_drag():
+    """Detect when a node ref is replaced by a different ref far away."""
+    root = ET.fromstring(NODE_SUBSTITUTION_ADIFF)
+    drags = detect_node_drags(root, threshold_meters=10)
+    assert len(drags) == 1
+    drag = drags[0]
+    assert drag["way_id"] == "99999"
+    assert drag["node_id"] == "100->300"
+    assert drag["distance_meters"] > 300
+    assert drag["changeset"] == "55555"
+    assert drag["user"] == "draguser"
+
+
+# Node substitution but distance is small (not a drag)
+NODE_SUBSTITUTION_SMALL_ADIFF = """<?xml version="1.0" encoding="UTF-8"?>
+<osm version="0.6">
+  <action type="modify">
+    <old>
+      <way id="99999" version="1" user="olduser" uid="1" timestamp="2024-01-01T00:00:00Z" changeset="11111">
+        <nd ref="100" lat="10.30000" lon="-85.80000"/>
+        <nd ref="200" lat="10.30410" lon="-85.80270"/>
+      </way>
+    </old>
+    <new>
+      <way id="99999" version="2" timestamp="2025-01-01T00:00:00Z" uid="500" user="draguser" changeset="55555">
+        <nd ref="300" lat="10.30001" lon="-85.80001"/>
+        <nd ref="200" lat="10.30410" lon="-85.80270"/>
+      </way>
+    </new>
+  </action>
+</osm>"""
+
+
+def test_ignores_small_node_substitution():
+    """Don't flag node substitutions where the replacement is nearby."""
+    root = ET.fromstring(NODE_SUBSTITUTION_SMALL_ADIFF)
+    drags = detect_node_drags(root, threshold_meters=10)
+    assert len(drags) == 0

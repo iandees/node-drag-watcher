@@ -67,20 +67,21 @@ def detect_node_drags(root, threshold_meters=10):
         if old_way is None or new_way is None:
             continue
 
-        old_nds = {
-            nd.get("ref"): (float(nd.get("lat")), float(nd.get("lon")))
+        old_nd_list = [
+            (nd.get("ref"), float(nd.get("lat")), float(nd.get("lon")))
             for nd in old_way.findall("nd")
-        }
-        new_nds = {
-            nd.get("ref"): (float(nd.get("lat")), float(nd.get("lon")))
+        ]
+        new_nd_list = [
+            (nd.get("ref"), float(nd.get("lat")), float(nd.get("lon")))
             for nd in new_way.findall("nd")
-        }
+        ]
 
-        # Only check nodes present in both old and new
+        old_nds = {ref: (lat, lon) for ref, lat, lon in old_nd_list}
+        new_nds = {ref: (lat, lon) for ref, lat, lon in new_nd_list}
+
         common_refs = set(old_nds) & set(new_nds)
-        if len(common_refs) < 3:
-            continue
 
+        # Check for same-ref moves (node kept its ID but position changed)
         moved = []
         for ref in common_refs:
             old_lat, old_lon = old_nds[ref]
@@ -89,16 +90,34 @@ def detect_node_drags(root, threshold_meters=10):
             if dist >= threshold_meters:
                 moved.append((ref, dist))
 
-        if len(moved) == 1:
-            node_ref, distance = moved[0]
-            way_name = ""
-            for tag in new_way.findall("tag"):
-                if tag.get("k") == "name":
-                    way_name = tag.get("v", "")
-                    break
+        # Check for node substitutions (node ref replaced by a different ref,
+        # e.g. user dragged a node onto another node and the editor merged them)
+        substituted = []
+        old_only = [ref for ref, _, _ in old_nd_list if ref not in new_nds]
+        new_only = [ref for ref, _, _ in new_nd_list if ref not in old_nds]
+        if len(old_only) == 1 and len(new_only) == 1:
+            old_ref = old_only[0]
+            new_ref = new_only[0]
+            old_lat, old_lon = old_nds[old_ref]
+            new_lat, new_lon = new_nds[new_ref]
+            dist = haversine_distance(old_lat, old_lon, new_lat, new_lon)
+            if dist >= threshold_meters:
+                substituted.append((old_ref, new_ref, dist))
 
-            # Get changeset/user from the node's own action (preferred)
-            # or fall back to the way element
+        # Exactly one anomaly total, and at least one other node stayed put
+        total_anomalies = len(moved) + len(substituted)
+        stable_nodes = len(common_refs) - len(moved)
+        if total_anomalies != 1 or stable_nodes < 1:
+            continue
+
+        way_name = ""
+        for tag in new_way.findall("tag"):
+            if tag.get("k") == "name":
+                way_name = tag.get("v", "")
+                break
+
+        if moved:
+            node_ref, distance = moved[0]
             info = node_info.get(node_ref, {})
             changeset = info.get("changeset") or new_way.get("changeset", "")
             user = info.get("user") or new_way.get("user", "")
@@ -107,6 +126,21 @@ def detect_node_drags(root, threshold_meters=10):
                 "way_id": new_way.get("id"),
                 "way_name": way_name,
                 "node_id": node_ref,
+                "distance_meters": round(distance, 1),
+                "changeset": changeset,
+                "user": user,
+            })
+        elif substituted:
+            old_ref, new_ref, distance = substituted[0]
+            # Attribution: use the new way's changeset since the way itself
+            # was modified (node list changed)
+            changeset = new_way.get("changeset", "")
+            user = new_way.get("user", "")
+
+            drags.append({
+                "way_id": new_way.get("id"),
+                "way_name": way_name,
+                "node_id": f"{old_ref}->{new_ref}",
                 "distance_meters": round(distance, 1),
                 "changeset": changeset,
                 "user": user,

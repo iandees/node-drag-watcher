@@ -159,6 +159,21 @@ def detect_node_drags(root, threshold_meters=10):
                         new_nds[new_refs[idx - 1]], new_nds[node_ref], new_nds[new_refs[idx + 1]]
                     ), 1)
 
+            # Sum of angle deltas across all interior nodes of the way
+            way_angle_delta_sum = None
+            if old_refs == new_refs:
+                total = 0.0
+                for i in range(1, len(new_refs) - 1):
+                    r = new_refs[i]
+                    oa = angle_at_node(
+                        old_nds[old_refs[i - 1]], old_nds[r], old_nds[old_refs[i + 1]]
+                    )
+                    na = angle_at_node(
+                        new_nds[new_refs[i - 1]], new_nds[r], new_nds[new_refs[i + 1]]
+                    )
+                    total += abs(na - oa)
+                way_angle_delta_sum = round(total, 1)
+
             drags.append({
                 "way_id": new_way.get("id"),
                 "way_name": way_name,
@@ -168,6 +183,7 @@ def detect_node_drags(root, threshold_meters=10):
                 "user": user,
                 "old_angle": old_angle,
                 "new_angle": new_angle,
+                "way_angle_delta_sum": way_angle_delta_sum,
             })
         elif substituted:
             old_ref, new_ref, distance = substituted[0]
@@ -200,6 +216,7 @@ def detect_node_drags(root, threshold_meters=10):
                 "user": user,
                 "old_angle": old_angle,
                 "new_angle": new_angle,
+                "way_angle_delta_sum": None,
             })
 
     return drags
@@ -289,37 +306,39 @@ def filter_drags(drags):
     Intentional edits (road realignment) maintain smooth geometry.
 
     For interior nodes: require new_angle < 45° (sharp spike).
-    For endpoint nodes (no angle available): fall back to multi-node heuristic.
+    For endpoint nodes (no angle available): only keep if the same node
+    was also detected as a sharp-angle interior drag on another way.
     """
-    # Count distinct nodes per changeset (for endpoint fallback)
-    nodes_per_changeset = {}
+    # First pass: find nodes confirmed as drags by angle analysis
+    confirmed_nodes = set()
     for drag in drags:
-        cs = drag["changeset"]
-        node = drag["node_id"]
-        nodes_per_changeset.setdefault(cs, set()).add(node)
+        new_angle = drag.get("new_angle")
+        way_sum = drag.get("way_angle_delta_sum")
+        if new_angle is not None and new_angle < 45:
+            if way_sum is None or way_sum >= 150:
+                confirmed_nodes.add(drag["node_id"])
 
     kept = []
     for drag in drags:
         new_angle = drag.get("new_angle")
+        way_sum = drag.get("way_angle_delta_sum")
 
         if new_angle is not None:
-            # Interior node: use angle heuristic
-            if new_angle < 45:
+            if new_angle < 45 and (way_sum is None or way_sum >= 150):
                 kept.append(drag)
             else:
                 log.debug(
-                    "Suppressing drag on way %s: new_angle=%.1f° (not sharp enough)",
-                    drag["way_id"], new_angle,
+                    "Suppressing drag on way %s: new_angle=%.1f° way_sum=%.1f° (not a drag)",
+                    drag["way_id"], new_angle, way_sum or 0,
                 )
         else:
-            # Endpoint node: fall back to multi-node heuristic
-            cs = drag["changeset"]
-            if len(nodes_per_changeset[cs]) == 1:
+            # Endpoint node: only keep if confirmed by interior angle elsewhere
+            if drag["node_id"] in confirmed_nodes:
                 kept.append(drag)
             else:
                 log.debug(
-                    "Suppressing endpoint drag on way %s: changeset %s has %d distinct nodes",
-                    drag["way_id"], cs, len(nodes_per_changeset[cs]),
+                    "Suppressing endpoint drag on way %s: node %s not confirmed by angle",
+                    drag["way_id"], drag["node_id"],
                 )
     return kept
 

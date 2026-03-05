@@ -255,7 +255,7 @@ def main():
 
     webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
     threshold = float(os.environ.get("DRAG_THRESHOLD_METERS", "10"))
-    state_file = os.environ.get("STATE_FILE", "state.txt")
+    state_file = os.environ.get("STATE_FILE", "/app/state/state.txt")
 
     if args.changeset:
         url = f"{ADIFF_BASE}/changesets/{args.changeset}.adiff"

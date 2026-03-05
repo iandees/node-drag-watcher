@@ -205,20 +205,48 @@ def detect_node_drags(root, threshold_meters=10):
     return drags
 
 
-def send_slack_alert(webhook_url, drag):
-    """Post a node drag alert to Slack."""
-    way_label = f"way {drag['way_id']}"
-    if drag["way_name"]:
-        way_label += f" ({drag['way_name']})"
+def send_slack_summary(webhook_url, drags):
+    """Post one Slack message per changeset summarizing detected drags."""
+    # Group drags by changeset
+    by_changeset = {}
+    for drag in drags:
+        by_changeset.setdefault(drag["changeset"], []).append(drag)
 
-    text = (
-        f":warning: Possible node drag detected\n"
-        f"*{way_label}*: node {drag['node_id']} moved {drag['distance_meters']}m\n"
-        f"User: {drag['user']} | "
-        f"<https://osmcha.org/changesets/{drag['changeset']}|Changeset {drag['changeset']}> | "
-        f"<https://www.openstreetmap.org/node/{drag['node_id']}|Node {drag['node_id']}>"
-    )
-    requests.post(webhook_url, json={"text": text}, timeout=10)
+    for changeset, cs_drags in by_changeset.items():
+        user = cs_drags[0]["user"]
+
+        # Group by node within the changeset
+        by_node = {}
+        for drag in cs_drags:
+            by_node.setdefault(drag["node_id"], []).append(drag)
+
+        lines = [
+            f":warning: Possible node drag in "
+            f"<https://osmcha.org/changesets/{changeset}|changeset {changeset}> "
+            f"by {user}",
+        ]
+
+        for node_id, node_drags in by_node.items():
+            distance = node_drags[0]["distance_meters"]
+            # For substitution nodes (old->new), link to the new node
+            link_node = node_id.split("->")[-1]
+            node_link = f"<https://www.openstreetmap.org/node/{link_node}|{node_id}>"
+
+            way_labels = []
+            for d in node_drags:
+                label = f"<https://www.openstreetmap.org/way/{d['way_id']}|{d['way_id']}>"
+                if d["way_name"]:
+                    label += f" ({d['way_name']})"
+                way_labels.append(label)
+
+            ways_str = ", ".join(way_labels)
+            lines.append(
+                f"• Node {node_link} moved {distance}m — "
+                f"affects way{'s' if len(node_drags) > 1 else ''} {ways_str}"
+            )
+
+        text = "\n".join(lines)
+        requests.post(webhook_url, json={"text": text}, timeout=10)
 
 
 def fetch_adiff(url):
@@ -307,8 +335,8 @@ def process_adiff(url, threshold_meters, webhook_url=None):
             drag["way_id"], drag["node_id"], drag["distance_meters"],
             drag["changeset"], drag["user"],
         )
-        if webhook_url:
-            send_slack_alert(webhook_url, drag)
+    if drags and webhook_url:
+        send_slack_summary(webhook_url, drags)
     return drags
 
 

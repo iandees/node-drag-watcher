@@ -2,6 +2,7 @@
 
 import argparse
 import io
+import json
 import logging
 import math
 import os
@@ -467,8 +468,308 @@ def upload_slack_image(bot_token, channel_id, image_bytes, filename):
         log.warning("Slack completeUploadExternal failed: %s", data.get("error"))
 
 
-def send_slack_summary(webhook_url, drags, bot_token=None, channel_id=None):
+OSM_API_BASE = "https://api.openstreetmap.org/api/0.6"
+
+
+def build_drag_blocks(drags, changeset, user):
+    """Build Block Kit blocks for a changeset alert with revert buttons.
+
+    Returns (text_fallback, blocks).
+    """
+    by_node = {}
+    for drag in drags:
+        by_node.setdefault(drag["node_id"], []).append(drag)
+
+    lines = [
+        f":warning: Possible node drag in "
+        f"<https://osmcha.org/changesets/{changeset}|changeset {changeset}> "
+        f"by {user}",
+    ]
+
+    for node_id, node_drags in by_node.items():
+        distance = node_drags[0]["distance_meters"]
+        link_node = node_id.split("->")[-1]
+        node_link = f"<https://www.openstreetmap.org/node/{link_node}|{node_id}>"
+
+        way_labels = []
+        for d in node_drags:
+            label = f"<https://www.openstreetmap.org/way/{d['way_id']}|{d['way_id']}>"
+            if d["way_name"]:
+                label += f" ({d['way_name']})"
+            way_labels.append(label)
+
+        ways_str = ", ".join(way_labels)
+        lines.append(
+            f"• Node {node_link} moved {distance}m — "
+            f"affects way{'s' if len(node_drags) > 1 else ''} {ways_str}"
+        )
+
+    text = "\n".join(lines)
+
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+    ]
+
+    # Add a revert button per unique node
+    seen_nodes = set()
+    for drag in drags:
+        node_id = drag["node_id"]
+        if node_id in seen_nodes:
+            continue
+        seen_nodes.add(node_id)
+
+        # For substitutions (old_ref->new_ref), encode the old ref for revert
+        is_substitution = "->" in str(node_id)
+        if is_substitution:
+            old_ref = node_id.split("->")[0]
+        else:
+            old_ref = node_id
+
+        button_value = json.dumps({
+            "node_id": old_ref,
+            "old_lat": drag["dragged_node_old"][0],
+            "old_lon": drag["dragged_node_old"][1],
+            "changeset": drag["changeset"],
+        })
+
+        blocks.append({
+            "type": "actions",
+            "elements": [{
+                "type": "button",
+                "text": {"type": "plain_text", "text": f"Revert Node {node_id}"},
+                "style": "danger",
+                "action_id": "revert_node_drag",
+                "value": button_value,
+                "confirm": {
+                    "title": {"type": "plain_text", "text": "Confirm Revert"},
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"Revert node {node_id} to its previous position?",
+                    },
+                    "confirm": {"type": "plain_text", "text": "Revert"},
+                    "deny": {"type": "plain_text", "text": "Cancel"},
+                },
+            }],
+        })
+
+    return text, blocks
+
+
+def send_slack_interactive(bot_token, channel_id, drags):
+    """Post alerts via chat.postMessage with Block Kit blocks + buttons."""
+    by_changeset = {}
+    for drag in drags:
+        by_changeset.setdefault(drag["changeset"], []).append(drag)
+
+    for changeset, cs_drags in by_changeset.items():
+        user = cs_drags[0]["user"]
+        text, blocks = build_drag_blocks(cs_drags, changeset, user)
+
+        resp = requests.post(
+            "https://slack.com/api/chat.postMessage",
+            headers={"Authorization": f"Bearer {bot_token}"},
+            json={
+                "channel": channel_id,
+                "text": text,
+                "blocks": blocks,
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if not data.get("ok"):
+            log.warning("Slack chat.postMessage failed: %s", data.get("error"))
+
+        # Upload drag images
+        for drag in cs_drags:
+            try:
+                image_bytes = generate_drag_image(drag)
+                if image_bytes:
+                    filename = f"drag_way{drag['way_id']}_node{drag['node_id']}.png"
+                    upload_slack_image(bot_token, channel_id, image_bytes, filename)
+            except Exception:
+                log.debug(
+                    "Failed to upload drag image for way %s",
+                    drag["way_id"],
+                    exc_info=True,
+                )
+
+
+def revert_node(osm_token, node_id, old_lat, old_lon, original_changeset):
+    """Revert a node to its old position via the OSM API.
+
+    Creates a changeset, updates the node, and closes the changeset.
+    Returns the new changeset ID.
+    """
+    headers = {
+        "Authorization": f"Bearer {osm_token}",
+        "Content-Type": "application/xml",
+    }
+
+    # Create changeset
+    changeset_xml = (
+        '<osm><changeset>'
+        f'<tag k="comment" v="Revert accidental node drag from changeset {original_changeset}"/>'
+        '<tag k="created_by" v="node-drag-watcher"/>'
+        '</changeset></osm>'
+    )
+    resp = requests.put(
+        f"{OSM_API_BASE}/changeset/create",
+        data=changeset_xml,
+        headers=headers,
+        timeout=15,
+    )
+    resp.raise_for_status()
+    cs_id = resp.text.strip()
+
+    try:
+        # Get current node
+        resp = requests.get(f"{OSM_API_BASE}/node/{node_id}", timeout=15)
+        resp.raise_for_status()
+        node_tree = ET.fromstring(resp.text)
+        node_elem = node_tree.find("node")
+        version = node_elem.get("version")
+
+        # Build updated node XML preserving tags
+        tags_xml = ""
+        for tag in node_elem.findall("tag"):
+            k = tag.get("k", "").replace("&", "&amp;").replace('"', "&quot;")
+            v = tag.get("v", "").replace("&", "&amp;").replace('"', "&quot;")
+            tags_xml += f'<tag k="{k}" v="{v}"/>'
+
+        node_xml = (
+            f'<osm><node id="{node_id}" version="{version}" changeset="{cs_id}" '
+            f'lat="{old_lat}" lon="{old_lon}">'
+            f'{tags_xml}</node></osm>'
+        )
+        resp = requests.put(
+            f"{OSM_API_BASE}/node/{node_id}",
+            data=node_xml,
+            headers=headers,
+            timeout=15,
+        )
+        resp.raise_for_status()
+    finally:
+        # Always close changeset
+        requests.put(
+            f"{OSM_API_BASE}/changeset/{cs_id}/close",
+            headers=headers,
+            timeout=15,
+        )
+
+    return cs_id
+
+
+def comment_on_changeset(osm_token, changeset_id, text):
+    """Post a comment on an OSM changeset."""
+    resp = requests.post(
+        f"{OSM_API_BASE}/changeset/{changeset_id}/comment",
+        data={"text": text},
+        headers={"Authorization": f"Bearer {osm_token}"},
+        timeout=15,
+    )
+    resp.raise_for_status()
+
+
+def handle_revert_action(ack, body, client, osm_token):
+    """Slack Bolt action handler for revert_node_drag buttons."""
+    ack()
+
+    action = body["actions"][0]
+    value = json.loads(action["value"])
+    node_id = value["node_id"]
+    old_lat = value["old_lat"]
+    old_lon = value["old_lon"]
+    original_changeset = value["changeset"]
+
+    user = body["user"]["username"]
+    channel = body["channel"]["id"]
+    ts = body["message"]["ts"]
+
+    try:
+        cs_id = revert_node(osm_token, node_id, old_lat, old_lon, original_changeset)
+
+        comment_on_changeset(
+            osm_token,
+            original_changeset,
+            f"Node {node_id} was reverted in changeset {cs_id} "
+            f"(accidental drag detected by node-drag-watcher).",
+        )
+
+        # Update the message: remove buttons, add confirmation
+        original_blocks = body["message"].get("blocks", [])
+        new_blocks = [b for b in original_blocks if b.get("type") != "actions"]
+        new_blocks.append({
+            "type": "context",
+            "elements": [{
+                "type": "mrkdwn",
+                "text": (
+                    f":white_check_mark: Reverted by @{user} in "
+                    f"<https://www.openstreetmap.org/changeset/{cs_id}|changeset {cs_id}>"
+                ),
+            }],
+        })
+
+        client.chat_update(channel=channel, ts=ts, blocks=new_blocks, text="Reverted")
+
+    except requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else None
+        if status == 409:
+            error_msg = "Node was modified since drag, manual review needed."
+        elif status == 404:
+            error_msg = "Node no longer exists."
+        elif status in (401, 403):
+            error_msg = "OSM auth failed, check OSM_ACCESS_TOKEN."
+        else:
+            error_msg = f"Revert failed: {e}"
+
+        original_blocks = body["message"].get("blocks", [])
+        new_blocks = [b for b in original_blocks if b.get("type") != "actions"]
+        new_blocks.append({
+            "type": "context",
+            "elements": [{
+                "type": "mrkdwn",
+                "text": f":x: {error_msg}",
+            }],
+        })
+        client.chat_update(channel=channel, ts=ts, blocks=new_blocks, text=error_msg)
+
+    except Exception as e:
+        log.exception("Revert failed for node %s", node_id)
+        original_blocks = body["message"].get("blocks", [])
+        new_blocks = [b for b in original_blocks if b.get("type") != "actions"]
+        new_blocks.append({
+            "type": "context",
+            "elements": [{
+                "type": "mrkdwn",
+                "text": f":x: Revert failed: {e}",
+            }],
+        })
+        client.chat_update(channel=channel, ts=ts, blocks=new_blocks, text=str(e))
+
+
+def start_socket_mode(app_token, bot_token, osm_token):
+    """Start Slack Socket Mode in a daemon thread to handle button interactions."""
+    from slack_bolt import App
+    from slack_bolt.adapter.socket_mode import SocketModeHandler
+
+    app = App(token=bot_token)
+
+    @app.action("revert_node_drag")
+    def _handle(ack, body, client):
+        handle_revert_action(ack, body, client, osm_token)
+
+    handler = SocketModeHandler(app, app_token)
+    handler.start()
+    log.info("Socket Mode started for interactive revert buttons")
+
+
+def send_slack_summary(webhook_url, drags, bot_token=None, channel_id=None, interactive=False):
     """Post one Slack message per changeset summarizing detected drags."""
+    if interactive and bot_token and channel_id:
+        send_slack_interactive(bot_token, channel_id, drags)
+        return
+
     # Group drags by changeset
     by_changeset = {}
     for drag in drags:
@@ -615,7 +916,7 @@ def filter_drags(drags):
     return kept
 
 
-def process_adiff(url, threshold_meters, webhook_url=None, bot_token=None, channel_id=None):
+def process_adiff(url, threshold_meters, webhook_url=None, bot_token=None, channel_id=None, interactive=False):
     """Fetch an adiff, detect drags, and optionally alert."""
     path = fetch_adiff(url)
     try:
@@ -629,12 +930,12 @@ def process_adiff(url, threshold_meters, webhook_url=None, bot_token=None, chann
             drag["way_id"], drag["node_id"], drag["distance_meters"],
             drag["changeset"], drag["user"],
         )
-    if drags and webhook_url:
-        send_slack_summary(webhook_url, drags, bot_token=bot_token, channel_id=channel_id)
+    if drags and (webhook_url or interactive):
+        send_slack_summary(webhook_url, drags, bot_token=bot_token, channel_id=channel_id, interactive=interactive)
     return drags
 
 
-def run_polling(webhook_url, threshold_meters, state_file, bot_token=None, channel_id=None):
+def run_polling(webhook_url, threshold_meters, state_file, bot_token=None, channel_id=None, interactive=False):
     """Continuously poll for new replication diffs and process them."""
     seq = read_state(state_file)
     if seq is None:
@@ -654,11 +955,9 @@ def run_polling(webhook_url, threshold_meters, state_file, bot_token=None, chann
                 url = f"{ADIFF_BASE}/replication/minute/{s}.adiff"
                 log.info("Processing sequence %d", s)
                 try:
-                    process_adiff(url, threshold_meters, webhook_url, bot_token, channel_id)
+                    process_adiff(url, threshold_meters, webhook_url, bot_token, channel_id, interactive)
                 except requests.HTTPError as e:
                     if e.response is not None and e.response.status_code == 404:
-                        # Adiff service lags behind OSM replication;
-                        # stop here and retry on the next loop
                         log.debug("Sequence %d not yet available, will retry", s)
                         break
                     log.warning("Failed to fetch sequence %d: %s", s, e)
@@ -682,23 +981,32 @@ def main():
     webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
     bot_token = os.environ.get("SLACK_BOT_TOKEN")
     channel_id = os.environ.get("SLACK_CHANNEL_ID")
+    app_token = os.environ.get("SLACK_APP_TOKEN")
+    osm_token = os.environ.get("OSM_ACCESS_TOKEN")
     threshold = float(os.environ.get("DRAG_THRESHOLD_METERS", "10"))
     state_file = os.environ.get("STATE_FILE", "/app/state/state.txt")
+
+    interactive = bool(app_token and osm_token and bot_token and channel_id)
+
+    if interactive:
+        start_socket_mode(app_token, bot_token, osm_token)
 
     if args.changeset:
         url = f"{ADIFF_BASE}/changesets/{args.changeset}.adiff"
         log.info("Processing changeset %d", args.changeset)
-        drags = process_adiff(url, threshold, webhook_url, bot_token, channel_id)
+        drags = process_adiff(url, threshold, webhook_url, bot_token, channel_id, interactive)
         if not drags:
             log.info("No node drags detected")
         sys.exit(0)
 
-    if not webhook_url:
+    if not webhook_url and not interactive:
         log.warning("SLACK_WEBHOOK_URL not set, will only log detections")
     if bot_token and channel_id:
         log.info("Slack image upload enabled")
+    if interactive:
+        log.info("Interactive revert buttons enabled")
 
-    run_polling(webhook_url, threshold, state_file, bot_token, channel_id)
+    run_polling(webhook_url, threshold, state_file, bot_token, channel_id, interactive)
 
 
 if __name__ == "__main__":

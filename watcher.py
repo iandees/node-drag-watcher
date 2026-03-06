@@ -9,6 +9,7 @@ import os
 import sys
 import tempfile
 import time
+import urllib.parse
 from collections.abc import Callable
 import xml.etree.ElementTree as ET
 
@@ -590,13 +591,60 @@ def _upload_node_images(
             log.debug("Failed to upload drag image for node %s", node_id, exc_info=True)
 
 
+def _post_reverter_link(
+    bot_token: str, channel_id: str, drags: list[dict], changeset: str,
+    thread_ts: str | None = None,
+) -> None:
+    """Post a link to the OSM reverter as a threaded reply."""
+    if not thread_ts:
+        return
+
+    # Collect affected node and way IDs
+    node_ids: set[str] = set()
+    way_ids: set[str] = set()
+    for drag in drags:
+        node_id = drag["node_id"]
+        # For substitutions, include both old and new node refs
+        if "->" in str(node_id):
+            for ref in node_id.split("->"):
+                node_ids.add(ref)
+        else:
+            node_ids.add(node_id)
+        way_ids.add(drag["way_id"])
+
+    query_parts = [f"n{nid}" for nid in sorted(node_ids)] + [f"w{wid}" for wid in sorted(way_ids)]
+    query_filter = ",".join(query_parts)
+
+    discussion = (
+        "This changeset contains an accidental node drag "
+        "that has been reverted. "
+        "This commonly happens when a node is accidentally "
+        "moved while trying to pan the map."
+    )
+
+    params = urllib.parse.urlencode({
+        "changesets": changeset,
+        "query-filter": query_filter,
+        "comment": f"Revert accidental node drag from changeset {changeset}",
+        "discussion": discussion,
+    })
+
+    reverter_url = f"https://revert.monicz.dev/?{params}"
+    text = f"<{reverter_url}|:leftwards_arrow_with_hook: Open in Reverter>"
+
+    _post_slack_message(bot_token, channel_id, text, thread_ts=thread_ts)
+
+
 def _post_slack_message(
     bot_token: str, channel_id: str, text: str, blocks: list[dict] | None = None,
+    thread_ts: str | None = None,
 ) -> str | None:
     """Post a message via chat.postMessage. Returns the message ts or None."""
     payload: dict = {"channel": channel_id, "text": text}
     if blocks:
         payload["blocks"] = blocks
+    if thread_ts:
+        payload["thread_ts"] = thread_ts
 
     resp = requests.post(
         "https://slack.com/api/chat.postMessage",
@@ -623,6 +671,7 @@ def send_slack_interactive(bot_token: str, channel_id: str, drags: list[dict]) -
         text, blocks = build_drag_blocks(cs_drags, changeset, user)
         ts = _post_slack_message(bot_token, channel_id, text, blocks)
         _upload_node_images(bot_token, channel_id, cs_drags, ts)
+        _post_reverter_link(bot_token, channel_id, cs_drags, changeset, ts)
 
 
 def revert_node(osm_token: str, node_id: str, old_lat: float, old_lon: float, original_changeset: str) -> str:
@@ -809,6 +858,7 @@ def send_slack_summary(bot_token: str, channel_id: str, drags: list[dict], inter
         text = _format_drag_text(cs_drags, changeset, user)
         ts = _post_slack_message(bot_token, channel_id, text)
         _upload_node_images(bot_token, channel_id, cs_drags, ts)
+        _post_reverter_link(bot_token, channel_id, cs_drags, changeset, ts)
 
 
 def fetch_adiff(url):

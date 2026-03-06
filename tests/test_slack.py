@@ -10,7 +10,7 @@ def _mock_post_ok():
 
 
 def test_single_node_single_way():
-    """One node dragged on one way = one message."""
+    """One node dragged on one way = one summary + one reverter link."""
     drags = [{
         "way_id": "12345",
         "way_name": "Test Street",
@@ -23,8 +23,8 @@ def test_single_node_single_way():
     }]
     with patch("watcher.requests.post", return_value=_mock_post_ok()) as mock_post:
         send_slack_summary("xoxb-test", "C123", drags)
-        mock_post.assert_called_once()
-        text = mock_post.call_args[1]["json"]["text"]
+        # First call is the summary, second is the reverter link
+        text = mock_post.call_args_list[0][1]["json"]["text"]
         assert "99999" in text
         assert "testuser" in text
         assert "67890" in text
@@ -49,8 +49,7 @@ def test_single_node_multiple_ways():
     ]
     with patch("watcher.requests.post", return_value=_mock_post_ok()) as mock_post:
         send_slack_summary("xoxb-test", "C123", drags)
-        mock_post.assert_called_once()
-        text = mock_post.call_args[1]["json"]["text"]
+        text = mock_post.call_args_list[0][1]["json"]["text"]
         assert "111" in text
         assert "222" in text
         assert "Main St" in text
@@ -74,7 +73,8 @@ def test_multiple_changesets():
     ]
     with patch("watcher.requests.post", return_value=_mock_post_ok()) as mock_post:
         send_slack_summary("xoxb-test", "C123", drags)
-        assert mock_post.call_count == 2
+        # 2 summaries + 2 reverter links = 4 calls
+        assert mock_post.call_count == 4
 
 
 def test_substitution_node_links_to_new():
@@ -86,7 +86,7 @@ def test_substitution_node_links_to_new():
     }]
     with patch("watcher.requests.post", return_value=_mock_post_ok()) as mock_post:
         send_slack_summary("xoxb-test", "C123", drags)
-        text = mock_post.call_args[1]["json"]["text"]
+        text = mock_post.call_args_list[0][1]["json"]["text"]
         assert "node/200" in text
         assert "100->200" in text
 
@@ -116,26 +116,43 @@ def test_interactive_delegates_to_send_slack_interactive():
         mock_interactive.assert_called_once_with("xoxb-test", "C123", drags)
 
 
-def test_non_interactive_uses_chat_post_message():
-    """When interactive=False, send_slack_summary uses chat.postMessage."""
+def test_non_interactive_posts_summary_and_reverter():
+    """Non-interactive mode posts summary then reverter link as thread."""
     drags = [_make_drag()]
     with patch("watcher.requests.post", return_value=_mock_post_ok()) as mock_post:
         send_slack_summary("xoxb-test", "C123", drags)
-        mock_post.assert_called_once()
-        assert "chat.postMessage" in mock_post.call_args[0][0]
+        # First call: summary, second call: reverter link
+        assert mock_post.call_count == 2
+        assert "chat.postMessage" in mock_post.call_args_list[0][0][0]
+        assert "chat.postMessage" in mock_post.call_args_list[1][0][0]
+        # Reverter link should be threaded
+        assert mock_post.call_args_list[1][1]["json"]["thread_ts"] == "111.222"
 
 
-def test_send_slack_interactive_posts_blocks():
-    """send_slack_interactive posts via chat.postMessage with blocks."""
+def test_reverter_link_contains_query_params():
+    """Reverter link includes changesets, query-filter, comment, discussion."""
+    drags = [_make_drag()]
+    with patch("watcher.requests.post", return_value=_mock_post_ok()) as mock_post:
+        send_slack_summary("xoxb-test", "C123", drags)
+        reverter_text = mock_post.call_args_list[1][1]["json"]["text"]
+        assert "revert.monicz.dev" in reverter_text
+        assert "changesets=999" in reverter_text
+        assert "n42" in reverter_text
+        assert "w111" in reverter_text
+
+
+def test_send_slack_interactive_posts_blocks_and_reverter():
+    """send_slack_interactive posts blocks then reverter link."""
     drags = [_make_drag()]
 
     with patch("watcher.requests.post", return_value=_mock_post_ok()) as mock_post:
         with patch("watcher.generate_drag_image", return_value=None):
             send_slack_interactive("xoxb-test", "C123", drags)
 
-    call_args = mock_post.call_args
-    assert "chat.postMessage" in call_args[0][0]
-    payload = call_args[1]["json"]
+    # First call: summary with blocks, second: reverter link
+    first_call = mock_post.call_args_list[0]
+    assert "chat.postMessage" in first_call[0][0]
+    payload = first_call[1]["json"]
     assert payload["channel"] == "C123"
     assert "blocks" in payload
     assert any(b["type"] == "actions" for b in payload["blocks"])

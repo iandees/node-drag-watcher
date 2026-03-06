@@ -394,22 +394,29 @@ def filter_drags(drags):
     for drag in drags:
         new_angle = drag.get("new_angle")
         way_sum = drag.get("way_angle_delta_sum")
+        is_substitution = "->" in str(drag.get("node_id", ""))
         if new_angle is not None and new_angle < 45:
-            if way_sum is None or way_sum >= 150:
+            # way_sum is None when node list changed (nodes added/removed);
+            # for non-substitution drags this means intentional editing.
+            # For substitutions, None is expected (refs differ by design).
+            if is_substitution or (way_sum is not None and way_sum >= 150):
                 confirmed_nodes.add(drag["node_id"])
 
     kept = []
     for drag in drags:
         new_angle = drag.get("new_angle")
         way_sum = drag.get("way_angle_delta_sum")
+        is_substitution = "->" in str(drag.get("node_id", ""))
 
         if new_angle is not None:
-            if new_angle < 45 and (way_sum is None or way_sum >= 150):
+            if new_angle < 45 and (
+                is_substitution or (way_sum is not None and way_sum >= 150)
+            ):
                 kept.append(drag)
             else:
                 log.debug(
-                    "Suppressing drag on way %s: new_angle=%.1f° way_sum=%.1f° (not a drag)",
-                    drag["way_id"], new_angle, way_sum or 0,
+                    "Suppressing drag on way %s: new_angle=%.1f° way_sum=%s (not a drag)",
+                    drag["way_id"], new_angle, way_sum,
                 )
         else:
             # Endpoint node: only keep if confirmed by interior angle elsewhere

@@ -406,6 +406,23 @@ def generate_drag_image(drag):
     nx, ny = to_px(*node_new)
     draw.ellipse([nx - 6, ny - 6, nx + 6, ny + 6], fill=(255, 50, 50), outline=(255, 255, 255), width=2)
 
+    # Draw arrow from old to new position
+    draw.line([(ox, oy), (nx, ny)], fill=(80, 80, 80), width=1)
+    # Arrowhead
+    dx, dy = nx - ox, ny - oy
+    length = math.sqrt(dx * dx + dy * dy)
+    if length > 0:
+        ux, uy = dx / length, dy / length
+        # Perpendicular
+        px, py = -uy, ux
+        head_len = min(8, length * 0.3)
+        head_w = head_len * 0.5
+        draw.polygon([
+            (nx, ny),
+            (nx - ux * head_len + px * head_w, ny - uy * head_len + py * head_w),
+            (nx - ux * head_len - px * head_w, ny - uy * head_len - py * head_w),
+        ], fill=(80, 80, 80))
+
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()

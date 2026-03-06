@@ -5,6 +5,7 @@ import logging
 import math
 import os
 import sys
+import tempfile
 import time
 import xml.etree.ElementTree as ET
 
@@ -47,11 +48,162 @@ def angle_at_node(prev, node, next_):
     return math.degrees(math.acos(cos_angle))
 
 
-def detect_node_drags(root, threshold_meters=10):
-    """Detect single-node drags in an augmented diff XML tree.
+def _check_way_for_drag(old_way, new_way, node_info, threshold_meters):
+    """Check a single way modification action for a node drag.
 
+    Returns a list of drag dicts (usually 0 or 1 items).
+    """
+    old_nd_list = [
+        (nd.get("ref"), float(nd.get("lat")), float(nd.get("lon")))
+        for nd in old_way.findall("nd")
+    ]
+    new_nd_list = [
+        (nd.get("ref"), float(nd.get("lat")), float(nd.get("lon")))
+        for nd in new_way.findall("nd")
+    ]
+
+    old_nds = {ref: (lat, lon) for ref, lat, lon in old_nd_list}
+    new_nds = {ref: (lat, lon) for ref, lat, lon in new_nd_list}
+
+    common_refs = set(old_nds) & set(new_nds)
+
+    # Check for same-ref moves (node kept its ID but position changed)
+    moved = []
+    for ref in common_refs:
+        old_lat, old_lon = old_nds[ref]
+        new_lat, new_lon = new_nds[ref]
+        dist = haversine_distance(old_lat, old_lon, new_lat, new_lon)
+        if dist >= threshold_meters:
+            moved.append((ref, dist))
+
+    # Check for node substitutions (node ref replaced by a different ref,
+    # e.g. user dragged a node onto another node and the editor merged them)
+    substituted = []
+    old_only = [ref for ref, _, _ in old_nd_list if ref not in new_nds]
+    new_only = [ref for ref, _, _ in new_nd_list if ref not in old_nds]
+    if len(old_only) == 1 and len(new_only) == 1:
+        old_ref = old_only[0]
+        new_ref = new_only[0]
+        old_lat, old_lon = old_nds[old_ref]
+        new_lat, new_lon = new_nds[new_ref]
+        dist = haversine_distance(old_lat, old_lon, new_lat, new_lon)
+        if dist >= threshold_meters:
+            substituted.append((old_ref, new_ref, dist))
+
+    # Exactly one anomaly total, and at least one other node stayed put
+    total_anomalies = len(moved) + len(substituted)
+    stable_nodes = len(common_refs) - len(moved)
+    if total_anomalies != 1 or stable_nodes < 1:
+        return []
+
+    way_name = ""
+    for tag in new_way.findall("tag"):
+        if tag.get("k") == "name":
+            way_name = tag.get("v", "")
+            break
+
+    # Compute angle at the moved/substituted node
+    new_refs = [ref for ref, _, _ in new_nd_list]
+    old_refs = [ref for ref, _, _ in old_nd_list]
+
+    if moved:
+        node_ref, distance = moved[0]
+        info = node_info.get(node_ref, {})
+        changeset = info.get("changeset") or new_way.get("changeset", "")
+        user = info.get("user") or new_way.get("user", "")
+
+        # Angle at moved node in old and new geometry
+        old_angle = None
+        new_angle = None
+        if node_ref in old_refs:
+            idx = old_refs.index(node_ref)
+            if 0 < idx < len(old_refs) - 1:
+                old_angle = round(angle_at_node(
+                    old_nds[old_refs[idx - 1]], old_nds[node_ref], old_nds[old_refs[idx + 1]]
+                ), 1)
+        if node_ref in new_refs:
+            idx = new_refs.index(node_ref)
+            if 0 < idx < len(new_refs) - 1:
+                new_angle = round(angle_at_node(
+                    new_nds[new_refs[idx - 1]], new_nds[node_ref], new_nds[new_refs[idx + 1]]
+                ), 1)
+
+        # Sum of angle deltas across all interior nodes of the way
+        way_angle_delta_sum = None
+        if old_refs == new_refs:
+            total = 0.0
+            for i in range(1, len(new_refs) - 1):
+                r = new_refs[i]
+                oa = angle_at_node(
+                    old_nds[old_refs[i - 1]], old_nds[r], old_nds[old_refs[i + 1]]
+                )
+                na = angle_at_node(
+                    new_nds[new_refs[i - 1]], new_nds[r], new_nds[new_refs[i + 1]]
+                )
+                total += abs(na - oa)
+            way_angle_delta_sum = round(total, 1)
+
+        return [{
+            "way_id": new_way.get("id"),
+            "way_name": way_name,
+            "node_id": node_ref,
+            "distance_meters": round(distance, 1),
+            "changeset": changeset,
+            "user": user,
+            "old_angle": old_angle,
+            "new_angle": new_angle,
+            "way_angle_delta_sum": way_angle_delta_sum,
+        }]
+    elif substituted:
+        old_ref, new_ref, distance = substituted[0]
+        changeset = new_way.get("changeset", "")
+        user = new_way.get("user", "")
+
+        # Angle at the new node position
+        new_angle = None
+        if new_ref in new_refs:
+            idx = new_refs.index(new_ref)
+            if 0 < idx < len(new_refs) - 1:
+                new_angle = round(angle_at_node(
+                    new_nds[new_refs[idx - 1]], new_nds[new_ref], new_nds[new_refs[idx + 1]]
+                ), 1)
+
+        old_angle = None
+        if old_ref in old_refs:
+            idx = old_refs.index(old_ref)
+            if 0 < idx < len(old_refs) - 1:
+                old_angle = round(angle_at_node(
+                    old_nds[old_refs[idx - 1]], old_nds[old_ref], old_nds[old_refs[idx + 1]]
+                ), 1)
+
+        return [{
+            "way_id": new_way.get("id"),
+            "way_name": way_name,
+            "node_id": f"{old_ref}->{new_ref}",
+            "distance_meters": round(distance, 1),
+            "changeset": changeset,
+            "user": user,
+            "old_angle": old_angle,
+            "new_angle": new_angle,
+            "way_angle_delta_sum": None,
+        }]
+
+    return []
+
+
+def detect_node_drags(source, threshold_meters=10):
+    """Detect single-node drags in an augmented diff.
+
+    source can be an Element (for tests) or a file path (for streaming parse).
     Returns a list of dicts with info about each detected drag.
     """
+    if isinstance(source, ET.Element):
+        return _detect_node_drags_tree(source, threshold_meters)
+    return _detect_node_drags_file(source, threshold_meters)
+
+
+def _detect_node_drags_tree(root, threshold_meters):
+    """Detect drags from an in-memory XML tree (two-pass)."""
     # First pass: collect changeset/user info from node modification actions
     node_info = {}
     for action in root.findall("action"):
@@ -69,155 +221,56 @@ def detect_node_drags(root, threshold_meters=10):
 
     # Second pass: look at ways for single-node drags
     drags = []
-
     for action in root.findall("action"):
         if action.get("type") != "modify":
             continue
-
         old = action.find("old")
         new = action.find("new")
         if old is None or new is None:
             continue
-
         old_way = old.find("way")
         new_way = new.find("way")
         if old_way is None or new_way is None:
             continue
+        drags.extend(_check_way_for_drag(old_way, new_way, node_info, threshold_meters))
 
-        old_nd_list = [
-            (nd.get("ref"), float(nd.get("lat")), float(nd.get("lon")))
-            for nd in old_way.findall("nd")
-        ]
-        new_nd_list = [
-            (nd.get("ref"), float(nd.get("lat")), float(nd.get("lon")))
-            for nd in new_way.findall("nd")
-        ]
+    return drags
 
-        old_nds = {ref: (lat, lon) for ref, lat, lon in old_nd_list}
-        new_nds = {ref: (lat, lon) for ref, lat, lon in new_nd_list}
 
-        common_refs = set(old_nds) & set(new_nds)
+def _detect_node_drags_file(path, threshold_meters):
+    """Detect drags by streaming an XML file (single-pass, low memory)."""
+    node_info = {}
+    drags = []
 
-        # Check for same-ref moves (node kept its ID but position changed)
-        moved = []
-        for ref in common_refs:
-            old_lat, old_lon = old_nds[ref]
-            new_lat, new_lon = new_nds[ref]
-            dist = haversine_distance(old_lat, old_lon, new_lat, new_lon)
-            if dist >= threshold_meters:
-                moved.append((ref, dist))
-
-        # Check for node substitutions (node ref replaced by a different ref,
-        # e.g. user dragged a node onto another node and the editor merged them)
-        substituted = []
-        old_only = [ref for ref, _, _ in old_nd_list if ref not in new_nds]
-        new_only = [ref for ref, _, _ in new_nd_list if ref not in old_nds]
-        if len(old_only) == 1 and len(new_only) == 1:
-            old_ref = old_only[0]
-            new_ref = new_only[0]
-            old_lat, old_lon = old_nds[old_ref]
-            new_lat, new_lon = new_nds[new_ref]
-            dist = haversine_distance(old_lat, old_lon, new_lat, new_lon)
-            if dist >= threshold_meters:
-                substituted.append((old_ref, new_ref, dist))
-
-        # Exactly one anomaly total, and at least one other node stayed put
-        total_anomalies = len(moved) + len(substituted)
-        stable_nodes = len(common_refs) - len(moved)
-        if total_anomalies != 1 or stable_nodes < 1:
+    context = ET.iterparse(path, events=("end",))
+    for _, elem in context:
+        if elem.tag != "action":
+            continue
+        if elem.get("type") != "modify":
+            elem.clear()
             continue
 
-        way_name = ""
-        for tag in new_way.findall("tag"):
-            if tag.get("k") == "name":
-                way_name = tag.get("v", "")
-                break
+        new = elem.find("new")
+        if new is not None:
+            # Collect node changeset/user info
+            node = new.find("node")
+            if node is not None:
+                node_info[node.get("id")] = {
+                    "changeset": node.get("changeset", ""),
+                    "user": node.get("user", ""),
+                }
 
-        # Compute angle at the moved/substituted node
-        new_refs = [ref for ref, _, _ in new_nd_list]
-        old_refs = [ref for ref, _, _ in old_nd_list]
-
-        if moved:
-            node_ref, distance = moved[0]
-            info = node_info.get(node_ref, {})
-            changeset = info.get("changeset") or new_way.get("changeset", "")
-            user = info.get("user") or new_way.get("user", "")
-
-            # Angle at moved node in old and new geometry
-            old_angle = None
-            new_angle = None
-            if node_ref in old_refs:
-                idx = old_refs.index(node_ref)
-                if 0 < idx < len(old_refs) - 1:
-                    old_angle = round(angle_at_node(
-                        old_nds[old_refs[idx - 1]], old_nds[node_ref], old_nds[old_refs[idx + 1]]
-                    ), 1)
-            if node_ref in new_refs:
-                idx = new_refs.index(node_ref)
-                if 0 < idx < len(new_refs) - 1:
-                    new_angle = round(angle_at_node(
-                        new_nds[new_refs[idx - 1]], new_nds[node_ref], new_nds[new_refs[idx + 1]]
-                    ), 1)
-
-            # Sum of angle deltas across all interior nodes of the way
-            way_angle_delta_sum = None
-            if old_refs == new_refs:
-                total = 0.0
-                for i in range(1, len(new_refs) - 1):
-                    r = new_refs[i]
-                    oa = angle_at_node(
-                        old_nds[old_refs[i - 1]], old_nds[r], old_nds[old_refs[i + 1]]
+            # Check for way drags
+            old = elem.find("old")
+            if old is not None:
+                old_way = old.find("way")
+                new_way = new.find("way")
+                if old_way is not None and new_way is not None:
+                    drags.extend(
+                        _check_way_for_drag(old_way, new_way, node_info, threshold_meters)
                     )
-                    na = angle_at_node(
-                        new_nds[new_refs[i - 1]], new_nds[r], new_nds[new_refs[i + 1]]
-                    )
-                    total += abs(na - oa)
-                way_angle_delta_sum = round(total, 1)
 
-            drags.append({
-                "way_id": new_way.get("id"),
-                "way_name": way_name,
-                "node_id": node_ref,
-                "distance_meters": round(distance, 1),
-                "changeset": changeset,
-                "user": user,
-                "old_angle": old_angle,
-                "new_angle": new_angle,
-                "way_angle_delta_sum": way_angle_delta_sum,
-            })
-        elif substituted:
-            old_ref, new_ref, distance = substituted[0]
-            changeset = new_way.get("changeset", "")
-            user = new_way.get("user", "")
-
-            # Angle at the new node position
-            new_angle = None
-            if new_ref in new_refs:
-                idx = new_refs.index(new_ref)
-                if 0 < idx < len(new_refs) - 1:
-                    new_angle = round(angle_at_node(
-                        new_nds[new_refs[idx - 1]], new_nds[new_ref], new_nds[new_refs[idx + 1]]
-                    ), 1)
-
-            old_angle = None
-            if old_ref in old_refs:
-                idx = old_refs.index(old_ref)
-                if 0 < idx < len(old_refs) - 1:
-                    old_angle = round(angle_at_node(
-                        old_nds[old_refs[idx - 1]], old_nds[old_ref], old_nds[old_refs[idx + 1]]
-                    ), 1)
-
-            drags.append({
-                "way_id": new_way.get("id"),
-                "way_name": way_name,
-                "node_id": f"{old_ref}->{new_ref}",
-                "distance_meters": round(distance, 1),
-                "changeset": changeset,
-                "user": user,
-                "old_angle": old_angle,
-                "new_angle": new_angle,
-                "way_angle_delta_sum": None,
-            })
+        elem.clear()
 
     return drags
 
@@ -267,10 +320,19 @@ def send_slack_summary(webhook_url, drags):
 
 
 def fetch_adiff(url):
-    """Fetch and parse an augmented diff XML from a URL."""
-    resp = requests.get(url, timeout=60)
+    """Fetch augmented diff XML to a temp file. Caller must delete the file."""
+    resp = requests.get(url, timeout=120, stream=True)
     resp.raise_for_status()
-    return ET.fromstring(resp.content)
+    f = tempfile.NamedTemporaryFile(delete=False, suffix=".adiff")
+    try:
+        for chunk in resp.iter_content(chunk_size=65536):
+            f.write(chunk)
+        f.close()
+        return f.name
+    except Exception:
+        f.close()
+        os.unlink(f.name)
+        raise
 
 
 def get_latest_sequence():
@@ -345,8 +407,11 @@ def filter_drags(drags):
 
 def process_adiff(url, threshold_meters, webhook_url=None):
     """Fetch an adiff, detect drags, and optionally alert."""
-    root = fetch_adiff(url)
-    drags = detect_node_drags(root, threshold_meters=threshold_meters)
+    path = fetch_adiff(url)
+    try:
+        drags = detect_node_drags(path, threshold_meters=threshold_meters)
+    finally:
+        os.unlink(path)
     drags = filter_drags(drags)
     for drag in drags:
         log.info(

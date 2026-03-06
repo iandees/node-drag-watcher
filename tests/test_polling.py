@@ -25,7 +25,7 @@ def test_polling_stops_at_404_and_does_not_advance_state():
 
     call_count = 0
 
-    def fake_process(url, threshold, webhook_url=None):
+    def fake_process(url, threshold, webhook_url=None, bot_token=None, channel_id=None):
         nonlocal call_count
         call_count += 1
         if "103" in url:
@@ -66,7 +66,7 @@ def test_polling_continues_past_non_404_errors():
 
     call_count = 0
 
-    def fake_process(url, threshold, webhook_url=None):
+    def fake_process(url, threshold, webhook_url=None, bot_token=None, channel_id=None):
         nonlocal call_count
         call_count += 1
         if "102" in url:

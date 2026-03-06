@@ -1,6 +1,7 @@
 """Watch OSM augmented diffs for accidental node drags."""
 
 import argparse
+import io
 import logging
 import math
 import os
@@ -10,6 +11,7 @@ import time
 import xml.etree.ElementTree as ET
 
 import requests
+from PIL import Image, ImageDraw
 
 logging.basicConfig(
     level=logging.INFO,
@@ -153,6 +155,10 @@ def _check_way_for_drag(old_way, new_way, node_info, threshold_meters):
             "old_angle": old_angle,
             "new_angle": new_angle,
             "way_angle_delta_sum": way_angle_delta_sum,
+            "old_way_coords": [(lat, lon) for _, lat, lon in old_nd_list],
+            "new_way_coords": [(lat, lon) for _, lat, lon in new_nd_list],
+            "dragged_node_old": old_nds[node_ref],
+            "dragged_node_new": new_nds[node_ref],
         }]
     elif substituted:
         old_ref, new_ref, distance = substituted[0]
@@ -186,6 +192,10 @@ def _check_way_for_drag(old_way, new_way, node_info, threshold_meters):
             "old_angle": old_angle,
             "new_angle": new_angle,
             "way_angle_delta_sum": None,
+            "old_way_coords": [(lat, lon) for _, lat, lon in old_nd_list],
+            "new_way_coords": [(lat, lon) for _, lat, lon in new_nd_list],
+            "dragged_node_old": old_nds[old_ref],
+            "dragged_node_new": new_nds[new_ref],
         }]
 
     return []
@@ -293,7 +303,154 @@ def _detect_node_drags_file(path, threshold_meters):
     return drags
 
 
-def send_slack_summary(webhook_url, drags):
+def _lon_to_tile_x(lon, zoom):
+    """Convert longitude to fractional tile X coordinate."""
+    return (lon + 180.0) / 360.0 * (2 ** zoom)
+
+
+def _lat_to_tile_y(lat, zoom):
+    """Convert latitude to fractional tile Y coordinate."""
+    lat_rad = math.radians(lat)
+    return (1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi) / 2.0 * (2 ** zoom)
+
+
+def _latlon_to_pixel(lat, lon, zoom, origin_tx, origin_ty):
+    """Convert lat/lon to pixel coordinates relative to tile origin."""
+    x = (_lon_to_tile_x(lon, zoom) - origin_tx) * 256
+    y = (_lat_to_tile_y(lat, zoom) - origin_ty) * 256
+    return int(x), int(y)
+
+
+def _choose_zoom(min_lat, min_lon, max_lat, max_lon, target_size=512):
+    """Choose a zoom level so the bounding box fits within target_size pixels."""
+    for zoom in range(18, 0, -1):
+        x_span = (_lon_to_tile_x(max_lon, zoom) - _lon_to_tile_x(min_lon, zoom)) * 256
+        y_span = (_lat_to_tile_y(min_lat, zoom) - _lat_to_tile_y(max_lat, zoom)) * 256
+        if x_span <= target_size and y_span <= target_size:
+            return zoom
+    return 1
+
+
+def generate_drag_image(drag):
+    """Generate a PNG image showing old and new way geometry with the dragged node.
+
+    Returns PNG bytes or None on failure.
+    """
+    old_coords = drag.get("old_way_coords", [])
+    new_coords = drag.get("new_way_coords", [])
+    node_old = drag.get("dragged_node_old")
+    node_new = drag.get("dragged_node_new")
+
+    if not old_coords or not new_coords or not node_old or not node_new:
+        return None
+
+    all_lats = [c[0] for c in old_coords] + [c[0] for c in new_coords]
+    all_lons = [c[1] for c in old_coords] + [c[1] for c in new_coords]
+
+    padding = 0.2  # 20% padding
+    lat_range = max(all_lats) - min(all_lats) or 0.001
+    lon_range = max(all_lons) - min(all_lons) or 0.001
+    min_lat = min(all_lats) - lat_range * padding
+    max_lat = max(all_lats) + lat_range * padding
+    min_lon = min(all_lons) - lon_range * padding
+    max_lon = max(all_lons) + lon_range * padding
+
+    zoom = _choose_zoom(min_lat, min_lon, max_lat, max_lon)
+
+    # Determine tile range
+    tx_min = int(_lon_to_tile_x(min_lon, zoom))
+    tx_max = int(_lon_to_tile_x(max_lon, zoom))
+    ty_min = int(_lat_to_tile_y(max_lat, zoom))  # note: lat/y inverted
+    ty_max = int(_lat_to_tile_y(min_lat, zoom))
+
+    img_w = (tx_max - tx_min + 1) * 256
+    img_h = (ty_max - ty_min + 1) * 256
+    img = Image.new("RGB", (img_w, img_h))
+
+    # Fetch and stitch tiles
+    for ty in range(ty_min, ty_max + 1):
+        for tx in range(tx_min, tx_max + 1):
+            tile_url = f"https://tile.openstreetmap.org/{zoom}/{tx}/{ty}.png"
+            try:
+                resp = requests.get(
+                    tile_url,
+                    timeout=10,
+                    headers={"User-Agent": "node-drag-watcher/0.1"},
+                )
+                resp.raise_for_status()
+                tile = Image.open(io.BytesIO(resp.content))
+                img.paste(tile, ((tx - tx_min) * 256, (ty - ty_min) * 256))
+            except Exception:
+                log.debug("Failed to fetch tile %s/%s/%s", zoom, tx, ty)
+
+    draw = ImageDraw.Draw(img)
+
+    def to_px(lat, lon):
+        return _latlon_to_pixel(lat, lon, zoom, tx_min, ty_min)
+
+    # Draw old way (blue)
+    if len(old_coords) >= 2:
+        old_pixels = [to_px(lat, lon) for lat, lon in old_coords]
+        draw.line(old_pixels, fill=(0, 100, 255), width=3)
+
+    # Draw new way (red)
+    if len(new_coords) >= 2:
+        new_pixels = [to_px(lat, lon) for lat, lon in new_coords]
+        draw.line(new_pixels, fill=(255, 50, 50), width=3)
+
+    # Draw dragged node old position (blue dot)
+    ox, oy = to_px(*node_old)
+    draw.ellipse([ox - 6, oy - 6, ox + 6, oy + 6], fill=(0, 100, 255), outline=(255, 255, 255), width=2)
+
+    # Draw dragged node new position (red dot)
+    nx, ny = to_px(*node_new)
+    draw.ellipse([nx - 6, ny - 6, nx + 6, ny + 6], fill=(255, 50, 50), outline=(255, 255, 255), width=2)
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def upload_slack_image(bot_token, channel_id, image_bytes, filename):
+    """Upload an image to Slack using the files.uploadV2 flow."""
+    headers = {"Authorization": f"Bearer {bot_token}"}
+
+    # Step 1: Get upload URL
+    resp = requests.get(
+        "https://slack.com/api/files.getUploadURLExternal",
+        params={"filename": filename, "length": len(image_bytes)},
+        headers=headers,
+        timeout=10,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    if not data.get("ok"):
+        log.warning("Slack getUploadURLExternal failed: %s", data.get("error"))
+        return
+    upload_url = data["upload_url"]
+    file_id = data["file_id"]
+
+    # Step 2: Upload the file
+    resp = requests.post(upload_url, data=image_bytes, timeout=30)
+    resp.raise_for_status()
+
+    # Step 3: Complete the upload and share to channel
+    resp = requests.post(
+        "https://slack.com/api/files.completeUploadExternal",
+        headers=headers,
+        json={
+            "files": [{"id": file_id}],
+            "channel_id": channel_id,
+        },
+        timeout=10,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    if not data.get("ok"):
+        log.warning("Slack completeUploadExternal failed: %s", data.get("error"))
+
+
+def send_slack_summary(webhook_url, drags, bot_token=None, channel_id=None):
     """Post one Slack message per changeset summarizing detected drags."""
     # Group drags by changeset
     by_changeset = {}
@@ -335,6 +492,17 @@ def send_slack_summary(webhook_url, drags):
 
         text = "\n".join(lines)
         requests.post(webhook_url, json={"text": text}, timeout=10)
+
+        # Upload drag images if bot token is available
+        if bot_token and channel_id:
+            for drag in cs_drags:
+                try:
+                    image_bytes = generate_drag_image(drag)
+                    if image_bytes:
+                        filename = f"drag_way{drag['way_id']}_node{drag['node_id']}.png"
+                        upload_slack_image(bot_token, channel_id, image_bytes, filename)
+                except Exception:
+                    log.debug("Failed to upload drag image for way %s", drag["way_id"], exc_info=True)
 
 
 def fetch_adiff(url):
@@ -430,7 +598,7 @@ def filter_drags(drags):
     return kept
 
 
-def process_adiff(url, threshold_meters, webhook_url=None):
+def process_adiff(url, threshold_meters, webhook_url=None, bot_token=None, channel_id=None):
     """Fetch an adiff, detect drags, and optionally alert."""
     path = fetch_adiff(url)
     try:
@@ -445,11 +613,11 @@ def process_adiff(url, threshold_meters, webhook_url=None):
             drag["changeset"], drag["user"],
         )
     if drags and webhook_url:
-        send_slack_summary(webhook_url, drags)
+        send_slack_summary(webhook_url, drags, bot_token=bot_token, channel_id=channel_id)
     return drags
 
 
-def run_polling(webhook_url, threshold_meters, state_file):
+def run_polling(webhook_url, threshold_meters, state_file, bot_token=None, channel_id=None):
     """Continuously poll for new replication diffs and process them."""
     seq = read_state(state_file)
     if seq is None:
@@ -469,7 +637,7 @@ def run_polling(webhook_url, threshold_meters, state_file):
                 url = f"{ADIFF_BASE}/replication/minute/{s}.adiff"
                 log.info("Processing sequence %d", s)
                 try:
-                    process_adiff(url, threshold_meters, webhook_url)
+                    process_adiff(url, threshold_meters, webhook_url, bot_token, channel_id)
                 except requests.HTTPError as e:
                     if e.response is not None and e.response.status_code == 404:
                         # Adiff service lags behind OSM replication;
@@ -495,21 +663,25 @@ def main():
     args = parser.parse_args()
 
     webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
+    bot_token = os.environ.get("SLACK_BOT_TOKEN")
+    channel_id = os.environ.get("SLACK_CHANNEL_ID")
     threshold = float(os.environ.get("DRAG_THRESHOLD_METERS", "10"))
     state_file = os.environ.get("STATE_FILE", "/app/state/state.txt")
 
     if args.changeset:
         url = f"{ADIFF_BASE}/changesets/{args.changeset}.adiff"
         log.info("Processing changeset %d", args.changeset)
-        drags = process_adiff(url, threshold, webhook_url)
+        drags = process_adiff(url, threshold, webhook_url, bot_token, channel_id)
         if not drags:
             log.info("No node drags detected")
         sys.exit(0)
 
     if not webhook_url:
         log.warning("SLACK_WEBHOOK_URL not set, will only log detections")
+    if bot_token and channel_id:
+        log.info("Slack image upload enabled")
 
-    run_polling(webhook_url, threshold, state_file)
+    run_polling(webhook_url, threshold, state_file, bot_token, channel_id)
 
 
 if __name__ == "__main__":

@@ -163,6 +163,11 @@ def test_detects_single_node_drag():
     assert drag["changeset"] == "88888"
     assert drag["user"] == "dragger"
     assert drag["way_name"] == "Test Street"
+    # Geometry keys
+    assert len(drag["old_way_coords"]) == 4
+    assert len(drag["new_way_coords"]) == 4
+    assert drag["dragged_node_old"] == (40.0010, -74.0010)
+    assert drag["dragged_node_new"] == (40.0015, -74.0010)
 
 
 def test_ignores_multi_node_move():
@@ -224,6 +229,9 @@ def test_detects_node_substitution_drag():
     assert drag["distance_meters"] > 300
     assert drag["changeset"] == "55555"
     assert drag["user"] == "draguser"
+    # Geometry keys for substitution
+    assert drag["dragged_node_old"] == (10.3036, -85.8023)
+    assert drag["dragged_node_new"] == (10.3005, -85.8012)
 
 
 # Node substitution but distance is small (not a drag)

@@ -238,39 +238,57 @@ def _detect_node_drags_tree(root, threshold_meters):
 
 
 def _detect_node_drags_file(path, threshold_meters):
-    """Detect drags by streaming an XML file (single-pass, low memory)."""
+    """Detect drags by streaming an XML file (single-pass, low memory).
+
+    Uses start/end events to skip relation actions (which can have millions
+    of descendants) by clearing their children as they are parsed.
+    """
     node_info = {}
     drags = []
+    root = None
+    skip_action = False
 
-    context = ET.iterparse(path, events=("end",))
-    for _, elem in context:
+    for event, elem in ET.iterparse(path, events=("start", "end")):
+        if event == "start":
+            if root is None:
+                root = elem
+            elif elem.tag == "relation":
+                skip_action = True
+            continue
+
+        # event == "end"
         if elem.tag != "action":
+            if skip_action:
+                elem.clear()
             continue
-        if elem.get("type") != "modify":
-            elem.clear()
-            continue
 
-        new = elem.find("new")
-        if new is not None:
-            # Collect node changeset/user info
-            node = new.find("node")
-            if node is not None:
-                node_info[node.get("id")] = {
-                    "changeset": node.get("changeset", ""),
-                    "user": node.get("user", ""),
-                }
+        # End of an <action> element
+        if not skip_action and elem.get("type") == "modify":
+            new = elem.find("new")
+            if new is not None:
+                # Collect node changeset/user info
+                node = new.find("node")
+                if node is not None:
+                    node_info[node.get("id")] = {
+                        "changeset": node.get("changeset", ""),
+                        "user": node.get("user", ""),
+                    }
 
-            # Check for way drags
-            old = elem.find("old")
-            if old is not None:
-                old_way = old.find("way")
-                new_way = new.find("way")
-                if old_way is not None and new_way is not None:
-                    drags.extend(
-                        _check_way_for_drag(old_way, new_way, node_info, threshold_meters)
-                    )
+                # Check for way drags
+                old = elem.find("old")
+                if old is not None:
+                    old_way = old.find("way")
+                    new_way = new.find("way")
+                    if old_way is not None and new_way is not None:
+                        drags.extend(
+                            _check_way_for_drag(
+                                old_way, new_way, node_info, threshold_meters
+                            )
+                        )
 
+        skip_action = False
         elem.clear()
+        root.remove(elem)
 
     return drags
 

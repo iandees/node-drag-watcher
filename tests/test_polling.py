@@ -25,7 +25,7 @@ def test_polling_stops_at_404_and_does_not_advance_state():
 
     call_count = 0
 
-    def fake_process(url, threshold, webhook_url=None, bot_token=None, channel_id=None, interactive=False):
+    def fake_process(url, threshold, bot_token=None, channel_id=None, interactive=False):
         nonlocal call_count
         call_count += 1
         if "103" in url:
@@ -46,7 +46,7 @@ def test_polling_stops_at_404_and_does_not_advance_state():
             patch("watcher.time.sleep", side_effect=fake_sleep),
         ):
             try:
-                run_polling(None, 10, state_file)
+                run_polling(10, state_file, "xoxb-test", "C123")
             except KeyboardInterrupt:
                 pass
 
@@ -66,7 +66,7 @@ def test_polling_continues_past_non_404_errors():
 
     call_count = 0
 
-    def fake_process(url, threshold, webhook_url=None, bot_token=None, channel_id=None, interactive=False):
+    def fake_process(url, threshold, bot_token=None, channel_id=None, interactive=False):
         nonlocal call_count
         call_count += 1
         if "102" in url:
@@ -87,7 +87,7 @@ def test_polling_continues_past_non_404_errors():
             patch("watcher.time.sleep", side_effect=fake_sleep),
         ):
             try:
-                run_polling(None, 10, state_file)
+                run_polling(10, state_file, "xoxb-test", "C123")
             except KeyboardInterrupt:
                 pass
 

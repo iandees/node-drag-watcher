@@ -13,8 +13,8 @@ from watcher import (
 )
 
 
-def _make_drag():
-    return {
+def _make_drag(**overrides):
+    drag = {
         "way_id": "12345",
         "way_name": "Test Street",
         "node_id": "2",
@@ -36,6 +36,8 @@ def _make_drag():
         "dragged_node_old": (40.0010, -74.0010),
         "dragged_node_new": (40.0015, -74.0010),
     }
+    drag.update(overrides)
+    return drag
 
 
 def _make_tile_png():
@@ -65,7 +67,7 @@ def test_choose_zoom():
 
 def test_generate_drag_image_produces_png():
     """generate_drag_image should produce valid PNG bytes with mocked tiles."""
-    drag = _make_drag()
+    drags = [_make_drag()]
     tile_png = _make_tile_png()
 
     mock_resp = MagicMock()
@@ -73,27 +75,52 @@ def test_generate_drag_image_produces_png():
     mock_resp.raise_for_status = MagicMock()
 
     with patch("watcher.requests.get", return_value=mock_resp):
-        result = generate_drag_image(drag)
+        result = generate_drag_image(drags)
 
     assert result is not None
-    # Verify it's a valid PNG
     img = Image.open(io.BytesIO(result))
     assert img.format == "PNG"
     assert img.size[0] > 0 and img.size[1] > 0
 
 
+def test_generate_drag_image_multiple_ways():
+    """One image should include all affected ways for the same node."""
+    drags = [
+        _make_drag(way_id="111"),
+        _make_drag(way_id="222",
+                   old_way_coords=[(40.0, -74.005), (40.001, -74.001)],
+                   new_way_coords=[(40.0, -74.005), (40.0015, -74.001)]),
+    ]
+    tile_png = _make_tile_png()
+
+    mock_resp = MagicMock()
+    mock_resp.content = tile_png
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("watcher.requests.get", return_value=mock_resp):
+        result = generate_drag_image(drags)
+
+    assert result is not None
+    img = Image.open(io.BytesIO(result))
+    assert img.format == "PNG"
+
+
 def test_generate_drag_image_missing_coords():
     """generate_drag_image returns None when geometry is missing."""
-    drag = {"way_id": "123", "node_id": "1"}
-    assert generate_drag_image(drag) is None
+    assert generate_drag_image([{"way_id": "123", "node_id": "1"}]) is None
+
+
+def test_generate_drag_image_empty_list():
+    """generate_drag_image returns None for empty list."""
+    assert generate_drag_image([]) is None
 
 
 def test_generate_drag_image_tile_failure():
     """Image generation should still succeed even if tile fetches fail."""
-    drag = _make_drag()
+    drags = [_make_drag()]
 
     with patch("watcher.requests.get", side_effect=Exception("network error")):
-        result = generate_drag_image(drag)
+        result = generate_drag_image(drags)
 
     # Should still return an image (with blank tiles)
     assert result is not None
@@ -127,60 +154,48 @@ def test_upload_slack_image():
 
     # Step 2 + 3: upload + completeUploadExternal
     assert mock_post.call_count == 2
-    # Step 2: POST to upload URL
     assert mock_post.call_args_list[0][0][0] == "https://files.slack.com/upload/v1/test"
-    # Step 3: completeUploadExternal
     assert "completeUploadExternal" in mock_post.call_args_list[1][0][0]
 
 
-def test_send_slack_summary_no_bot_token():
-    """Image upload is skipped when bot_token is None."""
+def test_upload_slack_image_with_thread():
+    """thread_ts is passed to completeUploadExternal."""
+    mock_get = MagicMock()
+    mock_get.return_value.json.return_value = {
+        "ok": True,
+        "upload_url": "https://files.slack.com/upload/v1/test",
+        "file_id": "F123",
+    }
+    mock_get.return_value.raise_for_status = MagicMock()
+
+    mock_post = MagicMock()
+    mock_post.return_value.raise_for_status = MagicMock()
+    mock_post.return_value.json.return_value = {"ok": True}
+
+    with patch("watcher.requests.get", mock_get), \
+         patch("watcher.requests.post", mock_post):
+        upload_slack_image("xoxb-test", "C123", b"fakepng", "test.png", thread_ts="123.456")
+
+    # completeUploadExternal should include thread_ts
+    complete_call = mock_post.call_args_list[1]
+    assert complete_call[1]["json"]["thread_ts"] == "123.456"
+
+
+def test_send_slack_summary_uploads_images_threaded():
+    """Images are uploaded as threaded replies to the summary message."""
     from watcher import send_slack_summary
 
-    drags = [{
-        "way_id": "12345", "way_name": "Test St", "node_id": "2",
-        "distance_meters": 55.0, "changeset": "99999", "user": "testuser",
-        "old_angle": 180.0, "new_angle": 5.0,
-        "old_way_coords": [(40.0, -74.0), (40.001, -74.001)],
-        "new_way_coords": [(40.0, -74.0), (40.002, -74.001)],
-        "dragged_node_old": (40.001, -74.001),
-        "dragged_node_new": (40.002, -74.001),
-    }]
+    drags = [_make_drag()]
 
-    with patch("watcher.requests.post") as mock_post, \
-         patch("watcher.generate_drag_image") as mock_gen, \
+    resp = MagicMock(status_code=200)
+    resp.json.return_value = {"ok": True, "ts": "111.222"}
+    resp.raise_for_status = MagicMock()
+
+    with patch("watcher.requests.post", return_value=resp), \
+         patch("watcher.generate_drag_image", return_value=b"fakepng"), \
          patch("watcher.upload_slack_image") as mock_upload:
-        mock_post.return_value = MagicMock(status_code=200)
-        send_slack_summary("https://hooks.slack.com/test", drags)
+        send_slack_summary("xoxb-test", "C123", drags)
 
-        # Text message sent
-        mock_post.assert_called_once()
-        # No image generation or upload
-        mock_gen.assert_not_called()
-        mock_upload.assert_not_called()
-
-
-def test_send_slack_summary_with_bot_token():
-    """Image is generated and uploaded when bot_token and channel_id are set."""
-    from watcher import send_slack_summary
-
-    drags = [{
-        "way_id": "12345", "way_name": "Test St", "node_id": "2",
-        "distance_meters": 55.0, "changeset": "99999", "user": "testuser",
-        "old_angle": 180.0, "new_angle": 5.0,
-        "old_way_coords": [(40.0, -74.0), (40.001, -74.001)],
-        "new_way_coords": [(40.0, -74.0), (40.002, -74.001)],
-        "dragged_node_old": (40.001, -74.001),
-        "dragged_node_new": (40.002, -74.001),
-    }]
-
-    with patch("watcher.requests.post") as mock_post, \
-         patch("watcher.generate_drag_image", return_value=b"fakepng") as mock_gen, \
-         patch("watcher.upload_slack_image") as mock_upload:
-        mock_post.return_value = MagicMock(status_code=200)
-        send_slack_summary("https://hooks.slack.com/test", drags,
-                          bot_token="xoxb-test", channel_id="C123")
-
-        mock_gen.assert_called_once()
-        mock_upload.assert_called_once_with("xoxb-test", "C123", b"fakepng",
-                                            "drag_way12345_node2.png")
+        mock_upload.assert_called_once_with(
+            "xoxb-test", "C123", b"fakepng", "drag_node2.png", "111.222",
+        )

@@ -1,5 +1,12 @@
-from unittest.mock import patch, MagicMock, ANY
+from unittest.mock import patch, MagicMock
 from watcher import send_slack_summary, send_slack_interactive
+
+
+def _mock_post_ok():
+    resp = MagicMock(status_code=200)
+    resp.json.return_value = {"ok": True, "ts": "111.222"}
+    resp.raise_for_status = MagicMock()
+    return resp
 
 
 def test_single_node_single_way():
@@ -14,9 +21,8 @@ def test_single_node_single_way():
         "old_angle": 180.0,
         "new_angle": 5.0,
     }]
-    with patch("watcher.requests.post") as mock_post:
-        mock_post.return_value = MagicMock(status_code=200)
-        send_slack_summary("https://hooks.slack.com/test", drags)
+    with patch("watcher.requests.post", return_value=_mock_post_ok()) as mock_post:
+        send_slack_summary("xoxb-test", "C123", drags)
         mock_post.assert_called_once()
         text = mock_post.call_args[1]["json"]["text"]
         assert "99999" in text
@@ -41,9 +47,8 @@ def test_single_node_multiple_ways():
             "old_angle": None, "new_angle": None,
         },
     ]
-    with patch("watcher.requests.post") as mock_post:
-        mock_post.return_value = MagicMock(status_code=200)
-        send_slack_summary("https://hooks.slack.com/test", drags)
+    with patch("watcher.requests.post", return_value=_mock_post_ok()) as mock_post:
+        send_slack_summary("xoxb-test", "C123", drags)
         mock_post.assert_called_once()
         text = mock_post.call_args[1]["json"]["text"]
         assert "111" in text
@@ -67,9 +72,8 @@ def test_multiple_changesets():
             "old_angle": 180.0, "new_angle": 3.0,
         },
     ]
-    with patch("watcher.requests.post") as mock_post:
-        mock_post.return_value = MagicMock(status_code=200)
-        send_slack_summary("https://hooks.slack.com/test", drags)
+    with patch("watcher.requests.post", return_value=_mock_post_ok()) as mock_post:
+        send_slack_summary("xoxb-test", "C123", drags)
         assert mock_post.call_count == 2
 
 
@@ -80,9 +84,8 @@ def test_substitution_node_links_to_new():
         "distance_meters": 300.0, "changeset": "999", "user": "testuser",
         "old_angle": None, "new_angle": None,
     }]
-    with patch("watcher.requests.post") as mock_post:
-        mock_post.return_value = MagicMock(status_code=200)
-        send_slack_summary("https://hooks.slack.com/test", drags)
+    with patch("watcher.requests.post", return_value=_mock_post_ok()) as mock_post:
+        send_slack_summary("xoxb-test", "C123", drags)
         text = mock_post.call_args[1]["json"]["text"]
         assert "node/200" in text
         assert "100->200" in text
@@ -109,37 +112,27 @@ def test_interactive_delegates_to_send_slack_interactive():
     """When interactive=True, send_slack_summary delegates to send_slack_interactive."""
     drags = [_make_drag()]
     with patch("watcher.send_slack_interactive") as mock_interactive:
-        send_slack_summary(
-            "https://hooks.slack.com/test", drags,
-            bot_token="xoxb-test", channel_id="C123", interactive=True,
-        )
+        send_slack_summary("xoxb-test", "C123", drags, interactive=True)
         mock_interactive.assert_called_once_with("xoxb-test", "C123", drags)
 
 
-def test_interactive_false_uses_webhook():
-    """When interactive=False, send_slack_summary uses the webhook."""
+def test_non_interactive_uses_chat_post_message():
+    """When interactive=False, send_slack_summary uses chat.postMessage."""
     drags = [_make_drag()]
-    with patch("watcher.requests.post") as mock_post:
-        mock_post.return_value = MagicMock(status_code=200)
-        send_slack_summary(
-            "https://hooks.slack.com/test", drags,
-            bot_token="xoxb-test", channel_id="C123", interactive=False,
-        )
+    with patch("watcher.requests.post", return_value=_mock_post_ok()) as mock_post:
+        send_slack_summary("xoxb-test", "C123", drags)
         mock_post.assert_called_once()
+        assert "chat.postMessage" in mock_post.call_args[0][0]
 
 
 def test_send_slack_interactive_posts_blocks():
     """send_slack_interactive posts via chat.postMessage with blocks."""
     drags = [_make_drag()]
-    resp = MagicMock(status_code=200)
-    resp.json.return_value = {"ok": True}
-    resp.raise_for_status = MagicMock()
 
-    with patch("watcher.requests.post", return_value=resp) as mock_post:
+    with patch("watcher.requests.post", return_value=_mock_post_ok()) as mock_post:
         with patch("watcher.generate_drag_image", return_value=None):
             send_slack_interactive("xoxb-test", "C123", drags)
 
-    # Should have called chat.postMessage
     call_args = mock_post.call_args
     assert "chat.postMessage" in call_args[0][0]
     payload = call_args[1]["json"]

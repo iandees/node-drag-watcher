@@ -9,6 +9,7 @@ import os
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 import xml.etree.ElementTree as ET
 
 import requests
@@ -332,23 +333,39 @@ def _choose_zoom(min_lat, min_lon, max_lat, max_lon, target_size=512):
     return 1
 
 
-def generate_drag_image(drag):
-    """Generate a PNG image showing old and new way geometry with the dragged node.
+def generate_drag_image(drags: list[dict]) -> bytes | None:
+    """Generate a PNG image showing all affected ways for a node drag.
 
+    drags is a list of drag dicts for the same node (one per affected way).
     Returns PNG bytes or None on failure.
     """
-    old_coords = drag.get("old_way_coords", [])
-    new_coords = drag.get("new_way_coords", [])
-    node_old = drag.get("dragged_node_old")
-    node_new = drag.get("dragged_node_new")
-
-    if not old_coords or not new_coords or not node_old or not node_new:
+    if not drags:
         return None
 
-    all_lats = [c[0] for c in old_coords] + [c[0] for c in new_coords]
-    all_lons = [c[1] for c in old_coords] + [c[1] for c in new_coords]
+    node_old = drags[0].get("dragged_node_old")
+    node_new = drags[0].get("dragged_node_new")
+    if not node_old or not node_new:
+        return None
 
-    padding = 0.2  # 20% padding
+    # Collect all way coords across all affected ways
+    all_lats: list[float] = []
+    all_lons: list[float] = []
+    way_pairs: list[tuple[list, list]] = []
+    for drag in drags:
+        old_coords = drag.get("old_way_coords", [])
+        new_coords = drag.get("new_way_coords", [])
+        if not old_coords or not new_coords:
+            continue
+        way_pairs.append((old_coords, new_coords))
+        all_lats.extend(c[0] for c in old_coords)
+        all_lats.extend(c[0] for c in new_coords)
+        all_lons.extend(c[1] for c in old_coords)
+        all_lons.extend(c[1] for c in new_coords)
+
+    if not all_lats:
+        return None
+
+    padding = 0.2
     lat_range = max(all_lats) - min(all_lats) or 0.001
     lon_range = max(all_lons) - min(all_lons) or 0.001
     min_lat = min(all_lats) - lat_range * padding
@@ -358,17 +375,15 @@ def generate_drag_image(drag):
 
     zoom = _choose_zoom(min_lat, min_lon, max_lat, max_lon)
 
-    # Determine tile range
     tx_min = int(_lon_to_tile_x(min_lon, zoom))
     tx_max = int(_lon_to_tile_x(max_lon, zoom))
-    ty_min = int(_lat_to_tile_y(max_lat, zoom))  # note: lat/y inverted
+    ty_min = int(_lat_to_tile_y(max_lat, zoom))
     ty_max = int(_lat_to_tile_y(min_lat, zoom))
 
     img_w = (tx_max - tx_min + 1) * 256
     img_h = (ty_max - ty_min + 1) * 256
     img = Image.new("RGB", (img_w, img_h))
 
-    # Fetch and stitch tiles
     for ty in range(ty_min, ty_max + 1):
         for tx in range(tx_min, tx_max + 1):
             tile_url = f"https://tile.openstreetmap.org/{zoom}/{tx}/{ty}.png"
@@ -386,35 +401,28 @@ def generate_drag_image(drag):
 
     draw = ImageDraw.Draw(img)
 
-    def to_px(lat, lon):
+    def to_px(lat: float, lon: float) -> tuple[int, int]:
         return _latlon_to_pixel(lat, lon, zoom, tx_min, ty_min)
 
-    # Draw old way (blue)
-    if len(old_coords) >= 2:
-        old_pixels = [to_px(lat, lon) for lat, lon in old_coords]
-        draw.line(old_pixels, fill=(0, 100, 255), width=3)
+    # Draw all ways
+    for old_coords, new_coords in way_pairs:
+        if len(old_coords) >= 2:
+            draw.line([to_px(lat, lon) for lat, lon in old_coords], fill=(0, 100, 255), width=3)
+        if len(new_coords) >= 2:
+            draw.line([to_px(lat, lon) for lat, lon in new_coords], fill=(255, 50, 50), width=3)
 
-    # Draw new way (red)
-    if len(new_coords) >= 2:
-        new_pixels = [to_px(lat, lon) for lat, lon in new_coords]
-        draw.line(new_pixels, fill=(255, 50, 50), width=3)
-
-    # Draw dragged node old position (blue dot)
+    # Draw dragged node positions
     ox, oy = to_px(*node_old)
     draw.ellipse([ox - 6, oy - 6, ox + 6, oy + 6], fill=(0, 100, 255), outline=(255, 255, 255), width=2)
-
-    # Draw dragged node new position (red dot)
     nx, ny = to_px(*node_new)
     draw.ellipse([nx - 6, ny - 6, nx + 6, ny + 6], fill=(255, 50, 50), outline=(255, 255, 255), width=2)
 
-    # Draw arrow from old to new position
+    # Arrow from old to new
     draw.line([(ox, oy), (nx, ny)], fill=(80, 80, 80), width=1)
-    # Arrowhead
     dx, dy = nx - ox, ny - oy
     length = math.sqrt(dx * dx + dy * dy)
     if length > 0:
         ux, uy = dx / length, dy / length
-        # Perpendicular
         px, py = -uy, ux
         head_len = min(8, length * 0.3)
         head_w = head_len * 0.5
@@ -429,8 +437,11 @@ def generate_drag_image(drag):
     return buf.getvalue()
 
 
-def upload_slack_image(bot_token, channel_id, image_bytes, filename):
-    """Upload an image to Slack using the files.uploadV2 flow."""
+def upload_slack_image(
+    bot_token: str, channel_id: str, image_bytes: bytes, filename: str,
+    thread_ts: str | None = None,
+) -> None:
+    """Upload an image to Slack and share it in a channel (optionally as a thread reply)."""
     headers = {"Authorization": f"Bearer {bot_token}"}
 
     # Step 1: Get upload URL
@@ -453,13 +464,17 @@ def upload_slack_image(bot_token, channel_id, image_bytes, filename):
     resp.raise_for_status()
 
     # Step 3: Complete the upload and share to channel
+    complete_payload: dict = {
+        "files": [{"id": file_id}],
+        "channel_id": channel_id,
+    }
+    if thread_ts:
+        complete_payload["thread_ts"] = thread_ts
+
     resp = requests.post(
         "https://slack.com/api/files.completeUploadExternal",
         headers=headers,
-        json={
-            "files": [{"id": file_id}],
-            "channel_id": channel_id,
-        },
+        json=complete_payload,
         timeout=10,
     )
     resp.raise_for_status()
@@ -471,12 +486,9 @@ def upload_slack_image(bot_token, channel_id, image_bytes, filename):
 OSM_API_BASE = "https://api.openstreetmap.org/api/0.6"
 
 
-def build_drag_blocks(drags, changeset, user):
-    """Build Block Kit blocks for a changeset alert with revert buttons.
-
-    Returns (text_fallback, blocks).
-    """
-    by_node = {}
+def _format_drag_text(drags: list[dict], changeset: str, user: str) -> str:
+    """Format the mrkdwn text for a changeset drag alert."""
+    by_node: dict[str, list[dict]] = {}
     for drag in drags:
         by_node.setdefault(drag["node_id"], []).append(drag)
 
@@ -504,23 +516,28 @@ def build_drag_blocks(drags, changeset, user):
             f"affects way{'s' if len(node_drags) > 1 else ''} {ways_str}"
         )
 
-    text = "\n".join(lines)
+    return "\n".join(lines)
 
-    blocks = [
+
+def build_drag_blocks(drags: list[dict], changeset: str, user: str) -> tuple[str, list[dict]]:
+    """Build Block Kit blocks for a changeset alert with revert buttons.
+
+    Returns (text_fallback, blocks).
+    """
+    text = _format_drag_text(drags, changeset, user)
+
+    blocks: list[dict] = [
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
     ]
 
-    # Add a revert button per unique node
-    seen_nodes = set()
+    seen_nodes: set[str] = set()
     for drag in drags:
         node_id = drag["node_id"]
         if node_id in seen_nodes:
             continue
         seen_nodes.add(node_id)
 
-        # For substitutions (old_ref->new_ref), encode the old ref for revert
-        is_substitution = "->" in str(node_id)
-        if is_substitution:
+        if "->" in str(node_id):
             old_ref = node_id.split("->")[0]
         else:
             old_ref = node_id
@@ -555,47 +572,60 @@ def build_drag_blocks(drags, changeset, user):
     return text, blocks
 
 
-def send_slack_interactive(bot_token, channel_id, drags):
+def _upload_node_images(
+    bot_token: str, channel_id: str, drags: list[dict], thread_ts: str | None = None,
+) -> None:
+    """Generate and upload one image per unique dragged node as a thread reply."""
+    by_node: dict[str, list[dict]] = {}
+    for drag in drags:
+        by_node.setdefault(drag["node_id"], []).append(drag)
+
+    for node_id, node_drags in by_node.items():
+        try:
+            image_bytes = generate_drag_image(node_drags)
+            if image_bytes:
+                filename = f"drag_node{node_id}.png"
+                upload_slack_image(bot_token, channel_id, image_bytes, filename, thread_ts)
+        except Exception:
+            log.debug("Failed to upload drag image for node %s", node_id, exc_info=True)
+
+
+def _post_slack_message(
+    bot_token: str, channel_id: str, text: str, blocks: list[dict] | None = None,
+) -> str | None:
+    """Post a message via chat.postMessage. Returns the message ts or None."""
+    payload: dict = {"channel": channel_id, "text": text}
+    if blocks:
+        payload["blocks"] = blocks
+
+    resp = requests.post(
+        "https://slack.com/api/chat.postMessage",
+        headers={"Authorization": f"Bearer {bot_token}"},
+        json=payload,
+        timeout=10,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    if not data.get("ok"):
+        log.warning("Slack chat.postMessage failed: %s", data.get("error"))
+        return None
+    return data.get("ts")
+
+
+def send_slack_interactive(bot_token: str, channel_id: str, drags: list[dict]) -> None:
     """Post alerts via chat.postMessage with Block Kit blocks + buttons."""
-    by_changeset = {}
+    by_changeset: dict[str, list[dict]] = {}
     for drag in drags:
         by_changeset.setdefault(drag["changeset"], []).append(drag)
 
     for changeset, cs_drags in by_changeset.items():
         user = cs_drags[0]["user"]
         text, blocks = build_drag_blocks(cs_drags, changeset, user)
-
-        resp = requests.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {bot_token}"},
-            json={
-                "channel": channel_id,
-                "text": text,
-                "blocks": blocks,
-            },
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        if not data.get("ok"):
-            log.warning("Slack chat.postMessage failed: %s", data.get("error"))
-
-        # Upload drag images
-        for drag in cs_drags:
-            try:
-                image_bytes = generate_drag_image(drag)
-                if image_bytes:
-                    filename = f"drag_way{drag['way_id']}_node{drag['node_id']}.png"
-                    upload_slack_image(bot_token, channel_id, image_bytes, filename)
-            except Exception:
-                log.debug(
-                    "Failed to upload drag image for way %s",
-                    drag["way_id"],
-                    exc_info=True,
-                )
+        ts = _post_slack_message(bot_token, channel_id, text, blocks)
+        _upload_node_images(bot_token, channel_id, cs_drags, ts)
 
 
-def revert_node(osm_token, node_id, old_lat, old_lon, original_changeset):
+def revert_node(osm_token: str, node_id: str, old_lat: float, old_lon: float, original_changeset: str) -> str:
     """Revert a node to its old position via the OSM API.
 
     Creates a changeset, updates the node, and closes the changeset.
@@ -660,7 +690,7 @@ def revert_node(osm_token, node_id, old_lat, old_lon, original_changeset):
     return cs_id
 
 
-def comment_on_changeset(osm_token, changeset_id, text):
+def comment_on_changeset(osm_token: str, changeset_id: str, text: str) -> None:
     """Post a comment on an OSM changeset."""
     resp = requests.post(
         f"{OSM_API_BASE}/changeset/{changeset_id}/comment",
@@ -671,7 +701,7 @@ def comment_on_changeset(osm_token, changeset_id, text):
     resp.raise_for_status()
 
 
-def handle_revert_action(ack, body, client, osm_token):
+def handle_revert_action(ack: Callable, body: dict, client: object, osm_token: str) -> None:
     """Slack Bolt action handler for revert_node_drag buttons."""
     ack()
 
@@ -748,7 +778,7 @@ def handle_revert_action(ack, body, client, osm_token):
         client.chat_update(channel=channel, ts=ts, blocks=new_blocks, text=str(e))
 
 
-def start_socket_mode(app_token, bot_token, osm_token):
+def start_socket_mode(app_token: str, bot_token: str, osm_token: str) -> None:
     """Start Slack Socket Mode in a daemon thread to handle button interactions."""
     from slack_bolt import App
     from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -760,67 +790,25 @@ def start_socket_mode(app_token, bot_token, osm_token):
         handle_revert_action(ack, body, client, osm_token)
 
     handler = SocketModeHandler(app, app_token)
-    handler.start()
+    handler.connect()
     log.info("Socket Mode started for interactive revert buttons")
 
 
-def send_slack_summary(webhook_url, drags, bot_token=None, channel_id=None, interactive=False):
+def send_slack_summary(bot_token: str, channel_id: str, drags: list[dict], interactive: bool = False) -> None:
     """Post one Slack message per changeset summarizing detected drags."""
-    if interactive and bot_token and channel_id:
+    if interactive:
         send_slack_interactive(bot_token, channel_id, drags)
         return
 
-    # Group drags by changeset
-    by_changeset = {}
+    by_changeset: dict[str, list[dict]] = {}
     for drag in drags:
         by_changeset.setdefault(drag["changeset"], []).append(drag)
 
     for changeset, cs_drags in by_changeset.items():
         user = cs_drags[0]["user"]
-
-        # Group by node within the changeset
-        by_node = {}
-        for drag in cs_drags:
-            by_node.setdefault(drag["node_id"], []).append(drag)
-
-        lines = [
-            f":warning: Possible node drag in "
-            f"<https://osmcha.org/changesets/{changeset}|changeset {changeset}> "
-            f"by {user}",
-        ]
-
-        for node_id, node_drags in by_node.items():
-            distance = node_drags[0]["distance_meters"]
-            # For substitution nodes (old->new), link to the new node
-            link_node = node_id.split("->")[-1]
-            node_link = f"<https://www.openstreetmap.org/node/{link_node}|{node_id}>"
-
-            way_labels = []
-            for d in node_drags:
-                label = f"<https://www.openstreetmap.org/way/{d['way_id']}|{d['way_id']}>"
-                if d["way_name"]:
-                    label += f" ({d['way_name']})"
-                way_labels.append(label)
-
-            ways_str = ", ".join(way_labels)
-            lines.append(
-                f"• Node {node_link} moved {distance}m — "
-                f"affects way{'s' if len(node_drags) > 1 else ''} {ways_str}"
-            )
-
-        text = "\n".join(lines)
-        requests.post(webhook_url, json={"text": text}, timeout=10)
-
-        # Upload drag images if bot token is available
-        if bot_token and channel_id:
-            for drag in cs_drags:
-                try:
-                    image_bytes = generate_drag_image(drag)
-                    if image_bytes:
-                        filename = f"drag_way{drag['way_id']}_node{drag['node_id']}.png"
-                        upload_slack_image(bot_token, channel_id, image_bytes, filename)
-                except Exception:
-                    log.debug("Failed to upload drag image for way %s", drag["way_id"], exc_info=True)
+        text = _format_drag_text(cs_drags, changeset, user)
+        ts = _post_slack_message(bot_token, channel_id, text)
+        _upload_node_images(bot_token, channel_id, cs_drags, ts)
 
 
 def fetch_adiff(url):
@@ -916,7 +904,7 @@ def filter_drags(drags):
     return kept
 
 
-def process_adiff(url, threshold_meters, webhook_url=None, bot_token=None, channel_id=None, interactive=False):
+def process_adiff(url: str, threshold_meters: float, bot_token: str | None = None, channel_id: str | None = None, interactive: bool = False) -> list[dict]:
     """Fetch an adiff, detect drags, and optionally alert."""
     path = fetch_adiff(url)
     try:
@@ -930,12 +918,12 @@ def process_adiff(url, threshold_meters, webhook_url=None, bot_token=None, chann
             drag["way_id"], drag["node_id"], drag["distance_meters"],
             drag["changeset"], drag["user"],
         )
-    if drags and (webhook_url or interactive):
-        send_slack_summary(webhook_url, drags, bot_token=bot_token, channel_id=channel_id, interactive=interactive)
+    if drags and bot_token and channel_id:
+        send_slack_summary(bot_token, channel_id, drags, interactive=interactive)
     return drags
 
 
-def run_polling(webhook_url, threshold_meters, state_file, bot_token=None, channel_id=None, interactive=False):
+def run_polling(threshold_meters: float, state_file: str, bot_token: str, channel_id: str, interactive: bool = False) -> None:
     """Continuously poll for new replication diffs and process them."""
     seq = read_state(state_file)
     if seq is None:
@@ -955,7 +943,7 @@ def run_polling(webhook_url, threshold_meters, state_file, bot_token=None, chann
                 url = f"{ADIFF_BASE}/replication/minute/{s}.adiff"
                 log.info("Processing sequence %d", s)
                 try:
-                    process_adiff(url, threshold_meters, webhook_url, bot_token, channel_id, interactive)
+                    process_adiff(url, threshold_meters, bot_token, channel_id, interactive)
                 except requests.HTTPError as e:
                     if e.response is not None and e.response.status_code == 404:
                         log.debug("Sequence %d not yet available, will retry", s)
@@ -978,7 +966,6 @@ def main():
     )
     args = parser.parse_args()
 
-    webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
     bot_token = os.environ.get("SLACK_BOT_TOKEN")
     channel_id = os.environ.get("SLACK_CHANNEL_ID")
     app_token = os.environ.get("SLACK_APP_TOKEN")
@@ -986,27 +973,41 @@ def main():
     threshold = float(os.environ.get("DRAG_THRESHOLD_METERS", "10"))
     state_file = os.environ.get("STATE_FILE", "/app/state/state.txt")
 
-    interactive = bool(app_token and osm_token and bot_token and channel_id)
+    # SLACK_BOT_TOKEN and SLACK_CHANNEL_ID are always required
+    if not bot_token:
+        log.error("SLACK_BOT_TOKEN is required.")
+        sys.exit(1)
+    if not channel_id:
+        log.error("SLACK_CHANNEL_ID is required.")
+        sys.exit(1)
+
+    # Interactive revert requires SLACK_APP_TOKEN and OSM_ACCESS_TOKEN
+    interactive = bool(app_token and osm_token)
+    if app_token and not osm_token:
+        log.error("SLACK_APP_TOKEN is set but OSM_ACCESS_TOKEN is missing.")
+        sys.exit(1)
+    if osm_token and not app_token:
+        log.error("OSM_ACCESS_TOKEN is set but SLACK_APP_TOKEN is missing.")
+        sys.exit(1)
 
     if interactive:
-        start_socket_mode(app_token, bot_token, osm_token)
+        try:
+            start_socket_mode(app_token, bot_token, osm_token)
+        except Exception:
+            log.warning("Failed to start Socket Mode (revert buttons won't work)", exc_info=True)
 
     if args.changeset:
         url = f"{ADIFF_BASE}/changesets/{args.changeset}.adiff"
         log.info("Processing changeset %d", args.changeset)
-        drags = process_adiff(url, threshold, webhook_url, bot_token, channel_id, interactive)
+        drags = process_adiff(url, threshold, bot_token, channel_id, interactive)
         if not drags:
             log.info("No node drags detected")
         sys.exit(0)
 
-    if not webhook_url and not interactive:
-        log.warning("SLACK_WEBHOOK_URL not set, will only log detections")
-    if bot_token and channel_id:
-        log.info("Slack image upload enabled")
     if interactive:
         log.info("Interactive revert buttons enabled")
 
-    run_polling(webhook_url, threshold, state_file, bot_token, channel_id, interactive)
+    run_polling(threshold, state_file, bot_token, channel_id, interactive)
 
 
 if __name__ == "__main__":

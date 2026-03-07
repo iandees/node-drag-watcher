@@ -6,6 +6,6 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
-COPY watcher.py .
+COPY watcher.py revert.py .
 
 CMD ["/app/.venv/bin/python", "watcher.py"]

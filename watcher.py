@@ -755,7 +755,8 @@ def handle_revert_action(ack: Callable, body: dict, client: object, osm_token: s
     except revert_mod.ConflictError:
         _update_message_error(body, client, "Node was modified since drag, manual review needed.")
 
-    except revert_mod.AuthError:
+    except revert_mod.AuthError as e:
+        log.error("OSM auth failed: %s", e)
         _update_message_error(body, client, "OSM auth failed, check OSM_ACCESS_TOKEN.")
 
     except Exception as e:

@@ -89,9 +89,9 @@ def _osm_headers(osm_token: str) -> dict:
 def _check_response(resp: requests.Response, context: str) -> None:
     """Map HTTP errors to typed exceptions."""
     if resp.status_code in (401, 403):
-        raise AuthError(f"{context}: HTTP {resp.status_code}")
+        raise AuthError(f"{context}: HTTP {resp.status_code} — {resp.text}")
     if resp.status_code == 409:
-        raise ConflictError(f"{context}: HTTP 409 Conflict")
+        raise ConflictError(f"{context}: HTTP 409 Conflict — {resp.text}")
     resp.raise_for_status()
 
 
@@ -135,11 +135,11 @@ def fetch_node(node_id: str,
     if resp.status_code == 410:
         # Node is deleted — fetch history and return last version
         hist_resp = requests.get(f"{api_base}/node/{node_id}/history", timeout=15)
-        hist_resp.raise_for_status()
+        _check_response(hist_resp, f"fetch node {node_id} history")
         root = ET.fromstring(hist_resp.text)
         nodes = root.findall("node")
         return nodes[-1], False
-    resp.raise_for_status()
+    _check_response(resp, f"fetch node {node_id}")
     root = ET.fromstring(resp.text)
     return root.find("node"), True
 
@@ -187,7 +187,7 @@ def undelete_node(osm_token: str, cs_id: str, node_elem: ET.Element,
 def fetch_way(way_id: str,
               api_base: str = DEFAULT_OSM_API_BASE) -> ET.Element:
     resp = requests.get(f"{api_base}/way/{way_id}", timeout=15)
-    resp.raise_for_status()
+    _check_response(resp, f"fetch way {way_id}")
     root = ET.fromstring(resp.text)
     return root.find("way")
 
@@ -228,7 +228,7 @@ def comment_on_changeset(osm_token: str, changeset_id: str, text: str,
         headers={"Authorization": f"Bearer {osm_token}"},
         timeout=15,
     )
-    resp.raise_for_status()
+    _check_response(resp, f"comment on changeset {changeset_id}")
 
 
 # -- Safety checks -------------------------------------------------------------

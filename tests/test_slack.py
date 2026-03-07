@@ -78,9 +78,10 @@ def test_multiple_changesets():
 
 
 def test_substitution_node_links_to_new():
-    """For old->new substitution, the link should point to the new node."""
+    """For substitution, the link should point to the node ID."""
     drags = [{
-        "way_id": "111", "way_name": "", "node_id": "100->200",
+        "way_id": "111", "way_name": "", "node_id": "200",
+        "is_substitution": True,
         "distance_meters": 300.0, "changeset": "999", "user": "testuser",
         "old_angle": None, "new_angle": None,
     }]
@@ -88,7 +89,6 @@ def test_substitution_node_links_to_new():
         send_slack_summary("xoxb-test", "C123", drags)
         text = mock_post.call_args_list[0][1]["json"]["text"]
         assert "node/200" in text
-        assert "100->200" in text
 
 
 def _make_drag(**overrides):

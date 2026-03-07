@@ -106,7 +106,7 @@ def test_keeps_sharp_angle_with_high_way_sum():
 def test_keeps_substitution_with_no_way_sum():
     """Substitution drag with no way_angle_delta_sum = kept."""
     drags = [
-        {"node_id": "100->200", "changeset": "100", "way_id": "10",
+        {"node_id": "200", "is_substitution": True, "changeset": "100", "way_id": "10",
          "distance_meters": 50, "user": "u", "way_name": "",
          "old_angle": 180.0, "new_angle": 5.0, "way_angle_delta_sum": None},
     ]

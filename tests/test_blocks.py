@@ -61,18 +61,16 @@ def test_button_has_confirm_dialog():
     assert button["action_id"] == "revert_node_drag"
 
 
-def test_substitution_node_encodes_old_ref():
-    drags = [_make_drag(node_id="100->200")]
+def test_substitution_node_uses_new_ref():
+    drags = [_make_drag(node_id="200", is_substitution=True)]
     _, blocks = build_drag_blocks(drags, "999", "bob")
 
     actions_block = [b for b in blocks if b["type"] == "actions"][0]
     button = actions_block["elements"][0]
     value = json.loads(button["value"])
 
-    # Should encode the OLD ref for revert
-    assert value["node_id"] == "100"
-    # Button text should show the full substitution ID
-    assert "100->200" in button["text"]["text"]
+    assert value["node_id"] == "200"
+    assert "200" in button["text"]["text"]
 
 
 def test_one_button_per_unique_node():

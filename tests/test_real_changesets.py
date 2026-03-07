@@ -31,7 +31,8 @@ def test_179326123_node_substitution():
     assert len(drags) == 1
     drag = drags[0]
     assert drag["way_id"] == "1224710341"
-    assert drag["node_id"] == "11357713787->11009507471"
+    assert drag["node_id"] == "11009507471"
+    assert drag["is_substitution"] is True
     assert drag["distance_meters"] > 300
     assert drag["changeset"] == "179326123"
     assert drag["user"] == "Ami1500"
@@ -45,7 +46,8 @@ def test_179263148_substitution_three_ways():
     way_ids = {d["way_id"] for d in drags}
     assert way_ids == {"334334048", "761519453", "825789929"}
     for drag in drags:
-        assert drag["node_id"] == "7114930047->2704770829"
+        assert drag["node_id"] == "2704770829"
+        assert drag["is_substitution"] is True
         assert drag["distance_meters"] > 300
         assert drag["user"] == "ixnnnn777"
 

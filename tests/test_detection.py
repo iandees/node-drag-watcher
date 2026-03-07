@@ -225,7 +225,8 @@ def test_detects_node_substitution_drag():
     assert len(drags) == 1
     drag = drags[0]
     assert drag["way_id"] == "99999"
-    assert drag["node_id"] == "100->300"
+    assert drag["node_id"] == "300"
+    assert drag["is_substitution"] is True
     assert drag["distance_meters"] > 300
     assert drag["changeset"] == "55555"
     assert drag["user"] == "draguser"

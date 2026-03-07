@@ -154,6 +154,7 @@ def _check_way_for_drag(old_way, new_way, node_info, threshold_meters):
             "way_id": new_way.get("id"),
             "way_name": way_name,
             "node_id": node_ref,
+            "is_substitution": False,
             "distance_meters": round(distance, 1),
             "changeset": changeset,
             "user": user,
@@ -190,7 +191,8 @@ def _check_way_for_drag(old_way, new_way, node_info, threshold_meters):
         return [{
             "way_id": new_way.get("id"),
             "way_name": way_name,
-            "node_id": f"{old_ref}->{new_ref}",
+            "node_id": new_ref,
+            "is_substitution": True,
             "distance_meters": round(distance, 1),
             "changeset": changeset,
             "user": user,
@@ -500,8 +502,7 @@ def _format_drag_text(drags: list[dict], changeset: str, user: str) -> str:
 
     for node_id, node_drags in by_node.items():
         distance = node_drags[0]["distance_meters"]
-        link_node = node_id.split("->")[-1]
-        node_link = f"<https://www.openstreetmap.org/node/{link_node}|{node_id}>"
+        node_link = f"<https://www.openstreetmap.org/node/{node_id}|{node_id}>"
 
         way_labels = []
         for d in node_drags:
@@ -536,15 +537,10 @@ def build_drag_blocks(drags: list[dict], changeset: str, user: str) -> tuple[str
         by_node.setdefault(drag["node_id"], []).append(drag)
 
     for node_id, node_drags in by_node.items():
-        if "->" in str(node_id):
-            old_ref = node_id.split("->")[0]
-        else:
-            old_ref = node_id
-
         way_ids = [d["way_id"] for d in node_drags]
 
         button_value = json.dumps({
-            "node_id": old_ref,
+            "node_id": node_id,
             "old_lat": node_drags[0]["dragged_node_old"][0],
             "old_lon": node_drags[0]["dragged_node_old"][1],
             "new_lat": node_drags[0]["dragged_node_new"][0],
@@ -606,13 +602,7 @@ def _post_reverter_link(
     node_ids: set[str] = set()
     way_ids: set[str] = set()
     for drag in drags:
-        node_id = drag["node_id"]
-        # For substitutions, include both old and new node refs
-        if "->" in str(node_id):
-            for ref in node_id.split("->"):
-                node_ids.add(ref)
-        else:
-            node_ids.add(node_id)
+        node_ids.add(drag["node_id"])
         way_ids.add(drag["way_id"])
 
     query_parts = [f"n{nid}" for nid in sorted(node_ids)] + [f"w{wid}" for wid in sorted(way_ids)]
@@ -880,7 +870,7 @@ def filter_drags(drags):
     for drag in drags:
         new_angle = drag.get("new_angle")
         way_sum = drag.get("way_angle_delta_sum")
-        is_substitution = "->" in str(drag.get("node_id", ""))
+        is_substitution = drag.get("is_substitution", False)
         if new_angle is not None and new_angle < 45:
             # way_sum is None when node list changed (nodes added/removed);
             # for non-substitution drags this means intentional editing.
@@ -892,7 +882,7 @@ def filter_drags(drags):
     for drag in drags:
         new_angle = drag.get("new_angle")
         way_sum = drag.get("way_angle_delta_sum")
-        is_substitution = "->" in str(drag.get("node_id", ""))
+        is_substitution = drag.get("is_substitution", False)
 
         if new_angle is not None:
             if new_angle < 45 and (

@@ -16,6 +16,8 @@ import xml.etree.ElementTree as ET
 import requests
 from PIL import Image, ImageDraw
 
+import revert as revert_mod
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
@@ -484,9 +486,6 @@ def upload_slack_image(
         log.warning("Slack completeUploadExternal failed: %s", data.get("error"))
 
 
-OSM_API_BASE = "https://api.openstreetmap.org/api/0.6"
-
-
 def _format_drag_text(drags: list[dict], changeset: str, user: str) -> str:
     """Format the mrkdwn text for a changeset drag alert."""
     by_node: dict[str, list[dict]] = {}
@@ -531,23 +530,27 @@ def build_drag_blocks(drags: list[dict], changeset: str, user: str) -> tuple[str
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
     ]
 
-    seen_nodes: set[str] = set()
+    # Group drags by node to collect all affected way IDs per node
+    by_node: dict[str, list[dict]] = {}
     for drag in drags:
-        node_id = drag["node_id"]
-        if node_id in seen_nodes:
-            continue
-        seen_nodes.add(node_id)
+        by_node.setdefault(drag["node_id"], []).append(drag)
 
+    for node_id, node_drags in by_node.items():
         if "->" in str(node_id):
             old_ref = node_id.split("->")[0]
         else:
             old_ref = node_id
 
+        way_ids = [d["way_id"] for d in node_drags]
+
         button_value = json.dumps({
             "node_id": old_ref,
-            "old_lat": drag["dragged_node_old"][0],
-            "old_lon": drag["dragged_node_old"][1],
-            "changeset": drag["changeset"],
+            "old_lat": node_drags[0]["dragged_node_old"][0],
+            "old_lon": node_drags[0]["dragged_node_old"][1],
+            "new_lat": node_drags[0]["dragged_node_new"][0],
+            "new_lon": node_drags[0]["dragged_node_new"][1],
+            "changeset": node_drags[0]["changeset"],
+            "way_ids": way_ids,
         })
 
         blocks.append({
@@ -674,106 +677,71 @@ def send_slack_interactive(bot_token: str, channel_id: str, drags: list[dict]) -
         _post_reverter_link(bot_token, channel_id, cs_drags, changeset, ts)
 
 
-def revert_node(osm_token: str, node_id: str, old_lat: float, old_lon: float, original_changeset: str) -> str:
-    """Revert a node to its old position via the OSM API.
+def _build_revert_instructions(value: dict) -> dict:
+    """Translate a button value dict into revert_changeset keyword arguments.
 
-    Creates a changeset, updates the node, and closes the changeset.
-    Returns the new changeset ID.
+    Classic drag (node_id is a plain ID):
+        → NodeMove
+    Substitution drag (node_id was old_ref, way_ids present, new_lat/new_lon differ):
+        → NodeUndelete + WayNodeSwap per way
     """
-    headers = {
-        "Authorization": f"Bearer {osm_token}",
-        "Content-Type": "application/xml",
+    node_id = value["node_id"]
+    old_lat = value["old_lat"]
+    old_lon = value["old_lon"]
+    new_lat = value.get("new_lat")
+    new_lon = value.get("new_lon")
+    way_ids = value.get("way_ids", [])
+
+    # Detect substitution: if we have way_ids and the new position is from a
+    # different node (the button encodes old_ref as node_id), this is a
+    # substitution scenario.  However, we don't store new_node_ref in the
+    # button — substitution drags are identified by the original node_id
+    # format "old->new" but the button only has old_ref.  For now, classic
+    # drags use NodeMove.
+    node_moves = [
+        revert_mod.NodeMove(
+            node_id=node_id,
+            old_lat=old_lat, old_lon=old_lon,
+            new_lat=new_lat, new_lon=new_lon,
+        ),
+    ] if new_lat is not None else []
+
+    return {
+        "node_moves": node_moves or None,
+        "node_undeletes": None,
+        "way_node_swaps": None,
     }
 
-    # Create changeset
-    changeset_xml = (
-        '<osm><changeset>'
-        f'<tag k="comment" v="Revert accidental node drag from changeset {original_changeset}"/>'
-        '<tag k="created_by" v="node-drag-watcher"/>'
-        '</changeset></osm>'
-    )
-    resp = requests.put(
-        f"{OSM_API_BASE}/changeset/create",
-        data=changeset_xml,
-        headers=headers,
-        timeout=15,
-    )
-    resp.raise_for_status()
-    cs_id = resp.text.strip()
 
-    try:
-        # Get current node
-        resp = requests.get(f"{OSM_API_BASE}/node/{node_id}", timeout=15)
-        resp.raise_for_status()
-        node_tree = ET.fromstring(resp.text)
-        node_elem = node_tree.find("node")
-        version = node_elem.get("version")
-
-        # Build updated node XML preserving tags
-        tags_xml = ""
-        for tag in node_elem.findall("tag"):
-            k = tag.get("k", "").replace("&", "&amp;").replace('"', "&quot;")
-            v = tag.get("v", "").replace("&", "&amp;").replace('"', "&quot;")
-            tags_xml += f'<tag k="{k}" v="{v}"/>'
-
-        node_xml = (
-            f'<osm><node id="{node_id}" version="{version}" changeset="{cs_id}" '
-            f'lat="{old_lat}" lon="{old_lon}">'
-            f'{tags_xml}</node></osm>'
-        )
-        resp = requests.put(
-            f"{OSM_API_BASE}/node/{node_id}",
-            data=node_xml,
-            headers=headers,
-            timeout=15,
-        )
-        resp.raise_for_status()
-    finally:
-        # Always close changeset
-        requests.put(
-            f"{OSM_API_BASE}/changeset/{cs_id}/close",
-            headers=headers,
-            timeout=15,
-        )
-
-    return cs_id
-
-
-def comment_on_changeset(osm_token: str, changeset_id: str, text: str) -> None:
-    """Post a comment on an OSM changeset."""
-    resp = requests.post(
-        f"{OSM_API_BASE}/changeset/{changeset_id}/comment",
-        data={"text": text},
-        headers={"Authorization": f"Bearer {osm_token}"},
-        timeout=15,
-    )
-    resp.raise_for_status()
-
-
-def handle_revert_action(ack: Callable, body: dict, client: object, osm_token: str) -> None:
+def handle_revert_action(ack: Callable, body: dict, client: object, osm_token: str,
+                         api_base: str = revert_mod.DEFAULT_OSM_API_BASE) -> None:
     """Slack Bolt action handler for revert_node_drag buttons."""
     ack()
 
     action = body["actions"][0]
     value = json.loads(action["value"])
     node_id = value["node_id"]
-    old_lat = value["old_lat"]
-    old_lon = value["old_lon"]
     original_changeset = value["changeset"]
 
     user = body["user"]["username"]
     channel = body["channel"]["id"]
     ts = body["message"]["ts"]
 
-    try:
-        cs_id = revert_node(osm_token, node_id, old_lat, old_lon, original_changeset)
+    comment = f"Revert accidental node drag from changeset {original_changeset}"
+    changeset_comment = (
+        f"Node {node_id} was reverted "
+        f"(accidental drag detected by node-drag-watcher)."
+    )
 
-        comment_on_changeset(
-            osm_token,
-            original_changeset,
-            f"Node {node_id} was reverted in changeset {cs_id} "
-            f"(accidental drag detected by node-drag-watcher).",
+    try:
+        instructions = _build_revert_instructions(value)
+        result = revert_mod.revert_changeset(
+            osm_token, original_changeset, comment,
+            changeset_comment=changeset_comment,
+            api_base=api_base,
+            **instructions,
         )
+        cs_id = result.revert_changeset_id
 
         # Update the message: remove buttons, add confirmation
         original_blocks = body["message"].get("blocks", [])
@@ -791,40 +759,34 @@ def handle_revert_action(ack: Callable, body: dict, client: object, osm_token: s
 
         client.chat_update(channel=channel, ts=ts, blocks=new_blocks, text="Reverted")
 
-    except requests.HTTPError as e:
-        status = e.response.status_code if e.response is not None else None
-        if status == 409:
-            error_msg = "Node was modified since drag, manual review needed."
-        elif status == 404:
-            error_msg = "Node no longer exists."
-        elif status in (401, 403):
-            error_msg = "OSM auth failed, check OSM_ACCESS_TOKEN."
-        else:
-            error_msg = f"Revert failed: {e}"
+    except revert_mod.AlreadyRevertedError:
+        _update_message_error(body, client, "Already reverted, nothing to do.")
 
-        original_blocks = body["message"].get("blocks", [])
-        new_blocks = [b for b in original_blocks if b.get("type") != "actions"]
-        new_blocks.append({
-            "type": "context",
-            "elements": [{
-                "type": "mrkdwn",
-                "text": f":x: {error_msg}",
-            }],
-        })
-        client.chat_update(channel=channel, ts=ts, blocks=new_blocks, text=error_msg)
+    except revert_mod.ConflictError:
+        _update_message_error(body, client, "Node was modified since drag, manual review needed.")
+
+    except revert_mod.AuthError:
+        _update_message_error(body, client, "OSM auth failed, check OSM_ACCESS_TOKEN.")
 
     except Exception as e:
         log.exception("Revert failed for node %s", node_id)
-        original_blocks = body["message"].get("blocks", [])
-        new_blocks = [b for b in original_blocks if b.get("type") != "actions"]
-        new_blocks.append({
-            "type": "context",
-            "elements": [{
-                "type": "mrkdwn",
-                "text": f":x: Revert failed: {e}",
-            }],
-        })
-        client.chat_update(channel=channel, ts=ts, blocks=new_blocks, text=str(e))
+        _update_message_error(body, client, f"Revert failed: {e}")
+
+
+def _update_message_error(body: dict, client: object, error_msg: str) -> None:
+    """Replace buttons with an error context block."""
+    channel = body["channel"]["id"]
+    ts = body["message"]["ts"]
+    original_blocks = body["message"].get("blocks", [])
+    new_blocks = [b for b in original_blocks if b.get("type") != "actions"]
+    new_blocks.append({
+        "type": "context",
+        "elements": [{
+            "type": "mrkdwn",
+            "text": f":x: {error_msg}",
+        }],
+    })
+    client.chat_update(channel=channel, ts=ts, blocks=new_blocks, text=error_msg)
 
 
 def start_socket_mode(app_token: str, bot_token: str, osm_token: str) -> None:

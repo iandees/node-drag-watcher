@@ -682,10 +682,10 @@ def _post_reverter_link(
     query_filter = ",".join(query_parts)
 
     discussion = (
-        "This changeset contains an accidental node drag "
-        "that has been reverted. "
-        "This commonly happens when a node is accidentally "
-        "moved while trying to pan the map."
+        "Hi! It looks like a node in this changeset was "
+        "accidentally moved. This can happen when panning "
+        "the map. The node has been moved back to its "
+        "previous position."
     )
 
     params = urllib.parse.urlencode({
@@ -801,8 +801,10 @@ def handle_revert_action(ack: Callable, body: dict, client: object, osm_token: s
 
     comment = f"Revert accidental node drag from changeset {original_changeset}"
     changeset_comment = (
-        f"Node {node_id} was reverted "
-        f"(accidental drag detected by node-drag-watcher)."
+        f"Hi! It looks like node {node_id} was accidentally "
+        f"moved in this changeset. This can happen when panning "
+        f"the map. The node has been moved back to its "
+        f"previous position."
     )
 
     try:

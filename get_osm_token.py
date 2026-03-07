@@ -14,7 +14,7 @@ import webbrowser
 
 import requests
 
-OSM_BASE = "https://www.openstreetmap.org"
+DEFAULT_OSM_BASE = "https://www.openstreetmap.org"
 REDIRECT_URI = "urn:ietf:wg:oauth:2.0:oob"
 
 
@@ -22,10 +22,14 @@ def main():
     parser = argparse.ArgumentParser(description="Get an OSM OAuth2 access token")
     parser.add_argument("--client-id", required=True, help="OAuth2 client ID")
     parser.add_argument("--client-secret", required=True, help="OAuth2 client secret")
+    parser.add_argument("--base-url", default=DEFAULT_OSM_BASE,
+                        help=f"OSM base URL (default: {DEFAULT_OSM_BASE})")
     args = parser.parse_args()
 
+    osm_base = args.base_url.rstrip("/")
+
     authorize_url = (
-        f"{OSM_BASE}/oauth2/authorize?"
+        f"{osm_base}/oauth2/authorize?"
         + urllib.parse.urlencode({
             "response_type": "code",
             "client_id": args.client_id,
@@ -40,7 +44,7 @@ def main():
     code = input("Paste the authorization code here: ").strip()
 
     resp = requests.post(
-        f"{OSM_BASE}/oauth2/token",
+        f"{osm_base}/oauth2/token",
         data={
             "grant_type": "authorization_code",
             "code": code,

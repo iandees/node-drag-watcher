@@ -713,7 +713,8 @@ def _build_revert_instructions(value: dict) -> dict:
     }
 
 
-def handle_revert_action(ack: Callable, body: dict, client: object, osm_token: str) -> None:
+def handle_revert_action(ack: Callable, body: dict, client: object, osm_token: str,
+                         api_base: str = revert_mod.DEFAULT_OSM_API_BASE) -> None:
     """Slack Bolt action handler for revert_node_drag buttons."""
     ack()
 
@@ -737,6 +738,7 @@ def handle_revert_action(ack: Callable, body: dict, client: object, osm_token: s
         result = revert_mod.revert_changeset(
             osm_token, original_changeset, comment,
             changeset_comment=changeset_comment,
+            api_base=api_base,
             **instructions,
         )
         cs_id = result.revert_changeset_id

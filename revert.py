@@ -13,7 +13,7 @@ import requests
 
 log = logging.getLogger(__name__)
 
-OSM_API_BASE = "https://api.openstreetmap.org/api/0.6"
+DEFAULT_OSM_API_BASE = "https://api.openstreetmap.org/api/0.6"
 
 # -- Exceptions ---------------------------------------------------------------
 
@@ -95,7 +95,8 @@ def _check_response(resp: requests.Response, context: str) -> None:
     resp.raise_for_status()
 
 
-def create_changeset(osm_token: str, comment: str) -> str:
+def create_changeset(osm_token: str, comment: str,
+                     api_base: str = DEFAULT_OSM_API_BASE) -> str:
     changeset_xml = (
         '<osm><changeset>'
         f'<tag k="comment" v="{_xml_escape(comment)}"/>'
@@ -103,7 +104,7 @@ def create_changeset(osm_token: str, comment: str) -> str:
         '</changeset></osm>'
     )
     resp = requests.put(
-        f"{OSM_API_BASE}/changeset/create",
+        f"{api_base}/changeset/create",
         data=changeset_xml,
         headers=_osm_headers(osm_token),
         timeout=15,
@@ -112,9 +113,10 @@ def create_changeset(osm_token: str, comment: str) -> str:
     return resp.text.strip()
 
 
-def close_changeset(osm_token: str, changeset_id: str) -> None:
+def close_changeset(osm_token: str, changeset_id: str,
+                    api_base: str = DEFAULT_OSM_API_BASE) -> None:
     resp = requests.put(
-        f"{OSM_API_BASE}/changeset/{changeset_id}/close",
+        f"{api_base}/changeset/{changeset_id}/close",
         headers=_osm_headers(osm_token),
         timeout=15,
     )
@@ -123,15 +125,16 @@ def close_changeset(osm_token: str, changeset_id: str) -> None:
         log.warning("Failed to close changeset %s: HTTP %s", changeset_id, resp.status_code)
 
 
-def fetch_node(node_id: str) -> tuple[ET.Element, bool]:
+def fetch_node(node_id: str,
+               api_base: str = DEFAULT_OSM_API_BASE) -> tuple[ET.Element, bool]:
     """Fetch a node. Returns (element, is_visible).
 
     For deleted nodes (410), fetches the last version via history.
     """
-    resp = requests.get(f"{OSM_API_BASE}/node/{node_id}", timeout=15)
+    resp = requests.get(f"{api_base}/node/{node_id}", timeout=15)
     if resp.status_code == 410:
         # Node is deleted — fetch history and return last version
-        hist_resp = requests.get(f"{OSM_API_BASE}/node/{node_id}/history", timeout=15)
+        hist_resp = requests.get(f"{api_base}/node/{node_id}/history", timeout=15)
         hist_resp.raise_for_status()
         root = ET.fromstring(hist_resp.text)
         nodes = root.findall("node")
@@ -141,7 +144,9 @@ def fetch_node(node_id: str) -> tuple[ET.Element, bool]:
     return root.find("node"), True
 
 
-def update_node(osm_token: str, cs_id: str, node_elem: ET.Element, lat: float, lon: float) -> None:
+def update_node(osm_token: str, cs_id: str, node_elem: ET.Element,
+                lat: float, lon: float,
+                api_base: str = DEFAULT_OSM_API_BASE) -> None:
     """Update a visible node's position, preserving tags."""
     node_id = node_elem.get("id")
     version = node_elem.get("version")
@@ -151,7 +156,7 @@ def update_node(osm_token: str, cs_id: str, node_elem: ET.Element, lat: float, l
         f'lat="{lat}" lon="{lon}">{tags_xml}</node></osm>'
     )
     resp = requests.put(
-        f"{OSM_API_BASE}/node/{node_id}",
+        f"{api_base}/node/{node_id}",
         data=node_xml,
         headers=_osm_headers(osm_token),
         timeout=15,
@@ -159,7 +164,9 @@ def update_node(osm_token: str, cs_id: str, node_elem: ET.Element, lat: float, l
     _check_response(resp, f"update node {node_id}")
 
 
-def undelete_node(osm_token: str, cs_id: str, node_elem: ET.Element, lat: float, lon: float) -> None:
+def undelete_node(osm_token: str, cs_id: str, node_elem: ET.Element,
+                  lat: float, lon: float,
+                  api_base: str = DEFAULT_OSM_API_BASE) -> None:
     """Restore a deleted node by PUTting with visible=true."""
     node_id = node_elem.get("id")
     version = node_elem.get("version")
@@ -169,7 +176,7 @@ def undelete_node(osm_token: str, cs_id: str, node_elem: ET.Element, lat: float,
         f'visible="true" lat="{lat}" lon="{lon}">{tags_xml}</node></osm>'
     )
     resp = requests.put(
-        f"{OSM_API_BASE}/node/{node_id}",
+        f"{api_base}/node/{node_id}",
         data=node_xml,
         headers=_osm_headers(osm_token),
         timeout=15,
@@ -177,15 +184,17 @@ def undelete_node(osm_token: str, cs_id: str, node_elem: ET.Element, lat: float,
     _check_response(resp, f"undelete node {node_id}")
 
 
-def fetch_way(way_id: str) -> ET.Element:
-    resp = requests.get(f"{OSM_API_BASE}/way/{way_id}", timeout=15)
+def fetch_way(way_id: str,
+              api_base: str = DEFAULT_OSM_API_BASE) -> ET.Element:
+    resp = requests.get(f"{api_base}/way/{way_id}", timeout=15)
     resp.raise_for_status()
     root = ET.fromstring(resp.text)
     return root.find("way")
 
 
 def update_way_node_ref(osm_token: str, cs_id: str, way_elem: ET.Element,
-                        old_ref: str, new_ref: str) -> None:
+                        old_ref: str, new_ref: str,
+                        api_base: str = DEFAULT_OSM_API_BASE) -> None:
     """Swap a node reference in a way, preserving everything else."""
     way_id = way_elem.get("id")
     version = way_elem.get("version")
@@ -203,7 +212,7 @@ def update_way_node_ref(osm_token: str, cs_id: str, way_elem: ET.Element,
         f'{nds_xml}{tags_xml}</way></osm>'
     )
     resp = requests.put(
-        f"{OSM_API_BASE}/way/{way_id}",
+        f"{api_base}/way/{way_id}",
         data=way_xml,
         headers=_osm_headers(osm_token),
         timeout=15,
@@ -211,9 +220,10 @@ def update_way_node_ref(osm_token: str, cs_id: str, way_elem: ET.Element,
     _check_response(resp, f"update way {way_id}")
 
 
-def comment_on_changeset(osm_token: str, changeset_id: str, text: str) -> None:
+def comment_on_changeset(osm_token: str, changeset_id: str, text: str,
+                         api_base: str = DEFAULT_OSM_API_BASE) -> None:
     resp = requests.post(
-        f"{OSM_API_BASE}/changeset/{changeset_id}/comment",
+        f"{api_base}/changeset/{changeset_id}/comment",
         data={"text": text},
         headers={"Authorization": f"Bearer {osm_token}"},
         timeout=15,
@@ -263,6 +273,7 @@ def revert_changeset(
     node_undeletes: list[NodeUndelete] | None = None,
     way_node_swaps: list[WayNodeSwap] | None = None,
     changeset_comment: str | None = None,
+    api_base: str = DEFAULT_OSM_API_BASE,
 ) -> RevertResult:
     """Revert specific elements from a changeset.
 
@@ -279,7 +290,7 @@ def revert_changeset(
 
     pending_moves: list[tuple[NodeMove, ET.Element]] = []
     for nm in node_moves:
-        node_elem, is_visible = fetch_node(nm.node_id)
+        node_elem, is_visible = fetch_node(nm.node_id, api_base=api_base)
         if not is_visible:
             result.skipped.append(f"node {nm.node_id}: deleted, cannot move")
             continue
@@ -290,7 +301,7 @@ def revert_changeset(
 
     pending_undeletes: list[tuple[NodeUndelete, ET.Element]] = []
     for nu in node_undeletes:
-        node_elem, is_visible = fetch_node(nu.node_id)
+        node_elem, is_visible = fetch_node(nu.node_id, api_base=api_base)
         if is_visible:
             result.skipped.append(f"node {nu.node_id}: already visible, skip undelete")
             continue
@@ -298,7 +309,7 @@ def revert_changeset(
 
     pending_swaps: list[tuple[WayNodeSwap, ET.Element]] = []
     for ws in way_node_swaps:
-        way_elem = fetch_way(ws.way_id)
+        way_elem = fetch_way(ws.way_id, api_base=api_base)
         if not _way_has_node_ref(way_elem, ws.new_node_ref):
             result.skipped.append(f"way {ws.way_id}: does not reference node {ws.new_node_ref}")
             continue
@@ -311,30 +322,30 @@ def revert_changeset(
 
     # -- Create changeset and execute ------------------------------------------
 
-    cs_id = create_changeset(osm_token, comment)
+    cs_id = create_changeset(osm_token, comment, api_base=api_base)
     result.revert_changeset_id = cs_id
 
     try:
         # Undeletes first (ways may reference these nodes)
         for nu, node_elem in pending_undeletes:
-            undelete_node(osm_token, cs_id, node_elem, nu.lat, nu.lon)
+            undelete_node(osm_token, cs_id, node_elem, nu.lat, nu.lon, api_base=api_base)
             result.nodes_undeleted.append(nu.node_id)
 
         # Node moves
         for nm, node_elem in pending_moves:
-            update_node(osm_token, cs_id, node_elem, nm.old_lat, nm.old_lon)
+            update_node(osm_token, cs_id, node_elem, nm.old_lat, nm.old_lon, api_base=api_base)
             result.nodes_moved.append(nm.node_id)
 
         # Way node swaps
         for ws, way_elem in pending_swaps:
-            update_way_node_ref(osm_token, cs_id, way_elem, ws.old_node_ref, ws.new_node_ref)
+            update_way_node_ref(osm_token, cs_id, way_elem, ws.old_node_ref, ws.new_node_ref, api_base=api_base)
             result.ways_updated.append(ws.way_id)
     finally:
-        close_changeset(osm_token, cs_id)
+        close_changeset(osm_token, cs_id, api_base=api_base)
 
     # -- Comment on original changeset -----------------------------------------
 
     if changeset_comment:
-        comment_on_changeset(osm_token, changeset_id, changeset_comment)
+        comment_on_changeset(osm_token, changeset_id, changeset_comment, api_base=api_base)
 
     return result

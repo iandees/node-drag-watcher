@@ -18,10 +18,15 @@ from PIL import Image, ImageDraw
 
 import revert as revert_mod
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-)
+from pythonjsonlogger.json import JsonFormatter
+
+_handler = logging.StreamHandler()
+_handler.setFormatter(JsonFormatter(
+    fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
+    rename_fields={"asctime": "timestamp", "levelname": "level", "name": "logger"},
+))
+logging.root.addHandler(_handler)
+logging.root.setLevel(logging.INFO)
 log = logging.getLogger(__name__)
 
 ADIFF_BASE = "https://adiffs.osmcha.org"

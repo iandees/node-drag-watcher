@@ -66,6 +66,14 @@ class WayNodeSwap:
 
 
 @dataclass
+class WayNodeRemove:
+    """Remove a node ref from a way's nd list.
+    Only applied if the way still references node_ref."""
+    way_id: str
+    node_ref: str
+
+
+@dataclass
 class RevertResult:
     revert_changeset_id: str | None = None
     nodes_moved: list[str] = field(default_factory=list)
@@ -223,6 +231,33 @@ def update_way_node_ref(osm_token: str, cs_id: str, way_elem: ET.Element,
     _check_response(resp, f"update way {way_id}")
 
 
+def remove_way_node_ref(osm_token: str, cs_id: str, way_elem: ET.Element,
+                        node_ref: str,
+                        api_base: str = DEFAULT_OSM_API_BASE) -> None:
+    """Remove a node reference from a way, preserving everything else."""
+    way_id = way_elem.get("id")
+    version = way_elem.get("version")
+
+    nds_xml = ""
+    for nd in way_elem.findall("nd"):
+        if nd.get("ref") == node_ref:
+            continue
+        nds_xml += f'<nd ref="{nd.get("ref")}"/>'
+
+    tags_xml = _tags_to_xml(way_elem)
+    way_xml = (
+        f'<osm><way id="{way_id}" version="{version}" changeset="{cs_id}">'
+        f'{nds_xml}{tags_xml}</way></osm>'
+    )
+    resp = requests.put(
+        f"{api_base}/way/{way_id}",
+        data=way_xml,
+        headers=_osm_headers(osm_token),
+        timeout=15,
+    )
+    _check_response(resp, f"update way {way_id}")
+
+
 def comment_on_changeset(osm_token: str, changeset_id: str, text: str,
                          api_base: str = DEFAULT_OSM_API_BASE) -> None:
     resp = requests.post(
@@ -275,6 +310,7 @@ def revert_changeset(
     node_moves: list[NodeMove] | None = None,
     node_undeletes: list[NodeUndelete] | None = None,
     way_node_swaps: list[WayNodeSwap] | None = None,
+    way_node_removes: list[WayNodeRemove] | None = None,
     changeset_comment: str | None = None,
     api_base: str = DEFAULT_OSM_API_BASE,
 ) -> RevertResult:
@@ -286,6 +322,7 @@ def revert_changeset(
     node_moves = node_moves or []
     node_undeletes = node_undeletes or []
     way_node_swaps = way_node_swaps or []
+    way_node_removes = way_node_removes or []
 
     result = RevertResult()
 
@@ -318,9 +355,17 @@ def revert_changeset(
             continue
         pending_swaps.append((ws, way_elem))
 
+    pending_removes: list[tuple[WayNodeRemove, ET.Element]] = []
+    for wr in way_node_removes:
+        way_elem = fetch_way(wr.way_id, api_base=api_base)
+        if not _way_has_node_ref(way_elem, wr.node_ref):
+            result.skipped.append(f"way {wr.way_id}: does not reference node {wr.node_ref}")
+            continue
+        pending_removes.append((wr, way_elem))
+
     # -- Nothing to do? --------------------------------------------------------
 
-    if not pending_moves and not pending_undeletes and not pending_swaps:
+    if not pending_moves and not pending_undeletes and not pending_swaps and not pending_removes:
         raise AlreadyRevertedError("All elements already in expected state")
 
     # -- Create changeset and execute ------------------------------------------
@@ -343,6 +388,11 @@ def revert_changeset(
         for ws, way_elem in pending_swaps:
             update_way_node_ref(osm_token, cs_id, way_elem, ws.old_node_ref, ws.new_node_ref, api_base=api_base)
             result.ways_updated.append(ws.way_id)
+
+        # Way node removes
+        for wr, way_elem in pending_removes:
+            remove_way_node_ref(osm_token, cs_id, way_elem, wr.node_ref, api_base=api_base)
+            result.ways_updated.append(wr.way_id)
     finally:
         close_changeset(osm_token, cs_id, api_base=api_base)
 

@@ -6,7 +6,7 @@ from unittest.mock import patch, MagicMock, call
 import pytest
 
 from revert import (
-    NodeMove, NodeUndelete, WayNodeSwap, RevertResult,
+    NodeMove, NodeUndelete, WayNodeSwap, WayNodeRemove, RevertResult,
     RevertError, AlreadyRevertedError, ConflictError, AuthError,
     revert_changeset, comment_on_changeset,
     _node_at_position, _way_has_node_ref,
@@ -298,6 +298,96 @@ class TestWayNodeSwap:
         assert 'ref="3"' in data
         assert "Main St" in data
         assert "highway" in data
+
+
+# ==============================================================================
+# WayNodeRemove tests
+# ==============================================================================
+
+class TestWayNodeRemove:
+    def test_happy_path_ref_removed(self):
+        """Way references node_ref → ref removed from nd list."""
+        way_resp = _ok(_way_xml("111", "3", ["1", "42", "3"]))
+        create_resp = _ok("12345")
+        update_resp = _ok("4")
+        close_resp = _ok()
+
+        with patch("revert.requests") as mock_req:
+            mock_req.get = MagicMock(return_value=way_resp)
+            mock_req.put = MagicMock(side_effect=[create_resp, update_resp, close_resp])
+
+            result = revert_changeset(
+                "token", "999", "Revert",
+                way_node_removes=[WayNodeRemove("111", "42")],
+            )
+
+        assert result.ways_updated == ["111"]
+        update_call = mock_req.put.call_args_list[1]
+        data = update_call[1]["data"]
+        assert 'ref="1"' in data
+        assert 'ref="3"' in data
+        assert 'ref="42"' not in data
+
+    def test_way_already_fixed_skipped(self):
+        """Way doesn't reference node_ref → skip, raises AlreadyRevertedError."""
+        way_resp = _ok(_way_xml("111", "3", ["1", "3"]))
+
+        with patch("revert.requests") as mock_req:
+            mock_req.get = MagicMock(return_value=way_resp)
+
+            with pytest.raises(AlreadyRevertedError):
+                revert_changeset(
+                    "token", "999", "Revert",
+                    way_node_removes=[WayNodeRemove("111", "42")],
+                )
+
+    def test_preserves_way_tags(self):
+        """Way update preserves tags when removing a node ref."""
+        way_resp = _ok(_way_xml("111", "3", ["1", "42", "3"],
+                                tags={"name": "Main St", "highway": "residential"}))
+        create_resp = _ok("12345")
+        update_resp = _ok("4")
+        close_resp = _ok()
+
+        with patch("revert.requests") as mock_req:
+            mock_req.get = MagicMock(return_value=way_resp)
+            mock_req.put = MagicMock(side_effect=[create_resp, update_resp, close_resp])
+
+            revert_changeset(
+                "token", "999", "Revert",
+                way_node_removes=[WayNodeRemove("111", "42")],
+            )
+
+        update_call = mock_req.put.call_args_list[1]
+        data = update_call[1]["data"]
+        assert "Main St" in data
+        assert "highway" in data
+
+    def test_removes_executed_after_swaps(self):
+        """Way node removes are executed after swaps."""
+        way_swap = _ok(_way_xml("111", "3", ["1", "200", "3"]))
+        way_remove = _ok(_way_xml("222", "5", ["4", "42", "6"]))
+        create_resp = _ok("12345")
+        swap_resp = _ok("4")
+        remove_resp = _ok("6")
+        close_resp = _ok()
+
+        with patch("revert.requests") as mock_req:
+            mock_req.get = MagicMock(side_effect=[way_swap, way_remove])
+            mock_req.put = MagicMock(side_effect=[create_resp, swap_resp, remove_resp, close_resp])
+
+            result = revert_changeset(
+                "token", "999", "Revert",
+                way_node_swaps=[WayNodeSwap("111", "100", "200")],
+                way_node_removes=[WayNodeRemove("222", "42")],
+            )
+
+        assert result.ways_updated == ["111", "222"]
+        # Verify ordering: create, swap way 111, remove from way 222, close
+        put_urls = [c[0][0] for c in mock_req.put.call_args_list]
+        swap_idx = next(i for i, u in enumerate(put_urls) if "way/111" in u)
+        remove_idx = next(i for i, u in enumerate(put_urls) if "way/222" in u)
+        assert swap_idx < remove_idx
 
 
 # ==============================================================================

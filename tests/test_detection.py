@@ -260,3 +260,76 @@ def test_ignores_small_node_substitution():
     root = ET.fromstring(NODE_SUBSTITUTION_SMALL_ADIFF)
     drags = detect_node_drags(root, threshold_meters=10)
     assert len(drags) == 0
+
+
+# Adiff where a node is moved on one way AND added to another way
+DRAG_WITH_MEMBERSHIP_CHANGE_ADIFF = """<?xml version="1.0" encoding="UTF-8"?>
+<osm version="0.6">
+  <action type="modify">
+    <old>
+      <node id="2" version="1" lat="40.0010" lon="-74.0010"/>
+    </old>
+    <new>
+      <node id="2" version="2" timestamp="2025-01-01T00:00:00Z" uid="200" user="dragger" changeset="88888" lat="40.0015" lon="-74.0010"/>
+    </new>
+  </action>
+  <action type="modify">
+    <old>
+      <way id="12345" version="5" user="testuser" uid="100" timestamp="2025-01-01T00:00:00Z" changeset="99999">
+        <nd ref="1" lat="40.0000" lon="-74.0000"/>
+        <nd ref="2" lat="40.0010" lon="-74.0010"/>
+        <nd ref="3" lat="40.0020" lon="-74.0020"/>
+        <nd ref="4" lat="40.0030" lon="-74.0030"/>
+        <tag k="highway" v="residential"/>
+      </way>
+    </old>
+    <new>
+      <way id="12345" version="6" user="testuser" uid="100" timestamp="2025-01-01T00:00:00Z" changeset="99999">
+        <nd ref="1" lat="40.0000" lon="-74.0000"/>
+        <nd ref="2" lat="40.0015" lon="-74.0010"/>
+        <nd ref="3" lat="40.0020" lon="-74.0020"/>
+        <nd ref="4" lat="40.0030" lon="-74.0030"/>
+        <tag k="highway" v="residential"/>
+      </way>
+    </new>
+  </action>
+  <action type="modify">
+    <old>
+      <way id="67890" version="2" user="testuser" uid="100" timestamp="2025-01-01T00:00:00Z" changeset="99999">
+        <nd ref="10" lat="40.1000" lon="-74.1000"/>
+        <nd ref="11" lat="40.1010" lon="-74.1010"/>
+      </way>
+    </old>
+    <new>
+      <way id="67890" version="3" user="testuser" uid="100" timestamp="2025-01-01T00:00:00Z" changeset="99999">
+        <nd ref="10" lat="40.1000" lon="-74.1000"/>
+        <nd ref="2" lat="40.0015" lon="-74.0010"/>
+        <nd ref="11" lat="40.1010" lon="-74.1010"/>
+      </way>
+    </new>
+  </action>
+</osm>"""
+
+
+def test_detects_way_membership_changes():
+    """Detect when a dragged node is also added to another way."""
+    root = ET.fromstring(DRAG_WITH_MEMBERSHIP_CHANGE_ADIFF)
+    drags = detect_node_drags(root, threshold_meters=10)
+    assert len(drags) == 1
+    drag = drags[0]
+    assert drag["node_id"] == "2"
+    assert drag["way_id"] == "12345"
+
+    # Should have detected node 2 was added to way 67890
+    changes = drag["way_membership_changes"]
+    assert len(changes) == 1
+    assert changes[0]["way_id"] == "67890"
+    assert changes[0]["change"] == "added"
+
+
+def test_no_membership_changes_for_own_way():
+    """Membership changes on the drag's own way are excluded."""
+    root = ET.fromstring(SINGLE_DRAG_ADIFF)
+    drags = detect_node_drags(root, threshold_meters=10)
+    assert len(drags) == 1
+    assert drags[0]["way_membership_changes"] == []

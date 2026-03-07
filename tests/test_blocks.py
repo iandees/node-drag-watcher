@@ -93,3 +93,38 @@ def test_multiple_nodes_get_multiple_buttons():
 
     actions_blocks = [b for b in blocks if b["type"] == "actions"]
     assert len(actions_blocks) == 2
+
+
+def test_button_value_includes_membership_changes():
+    drags = [_make_drag(way_membership_changes=[
+        {"way_id": "555", "change": "added"},
+    ])]
+    _, blocks = build_drag_blocks(drags, "999", "bob")
+
+    actions_block = [b for b in blocks if b["type"] == "actions"][0]
+    button = actions_block["elements"][0]
+    value = json.loads(button["value"])
+
+    assert "way_membership_changes" in value
+    assert len(value["way_membership_changes"]) == 1
+    assert value["way_membership_changes"][0]["way_id"] == "555"
+    assert value["way_membership_changes"][0]["change"] == "added"
+
+
+def test_button_value_deduplicates_membership_changes():
+    """When multiple drags for same node have same membership change, deduplicate."""
+    drags = [
+        _make_drag(way_id="111", way_membership_changes=[
+            {"way_id": "555", "change": "added"},
+        ]),
+        _make_drag(way_id="222", way_membership_changes=[
+            {"way_id": "555", "change": "added"},
+        ]),
+    ]
+    _, blocks = build_drag_blocks(drags, "999", "bob")
+
+    actions_block = [b for b in blocks if b["type"] == "actions"][0]
+    button = actions_block["elements"][0]
+    value = json.loads(button["value"])
+
+    assert len(value["way_membership_changes"]) == 1

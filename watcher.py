@@ -60,6 +60,13 @@ def angle_at_node(prev, node, next_):
     return math.degrees(math.acos(cos_angle))
 
 
+def _get_way_membership_changes(old_way, new_way):
+    """Return (added_refs, removed_refs) for a way modification."""
+    old_refs = {nd.get("ref") for nd in old_way.findall("nd")}
+    new_refs = {nd.get("ref") for nd in new_way.findall("nd")}
+    return new_refs - old_refs, old_refs - new_refs
+
+
 def _check_way_for_drag(old_way, new_way, node_info, threshold_meters):
     """Check a single way modification action for a node drag.
 
@@ -224,6 +231,18 @@ def detect_node_drags(source, threshold_meters=10):
     return _detect_node_drags_file(source, threshold_meters)
 
 
+def _attach_way_membership_changes(drags, way_changes):
+    """Attach way_membership_changes to each drag from other ways."""
+    for drag in drags:
+        node_id = drag["node_id"]
+        drag_way_id = drag["way_id"]
+        changes = [
+            entry for entry in way_changes.get(node_id, [])
+            if entry["way_id"] != drag_way_id
+        ]
+        drag["way_membership_changes"] = changes
+
+
 def _detect_node_drags_tree(root, threshold_meters):
     """Detect drags from an in-memory XML tree (two-pass)."""
     # First pass: collect changeset/user info from node modification actions
@@ -241,8 +260,10 @@ def _detect_node_drags_tree(root, threshold_meters):
                 "user": node.get("user", ""),
             }
 
-    # Second pass: look at ways for single-node drags
+    # Second pass: look at ways for single-node drags and track membership changes
     drags = []
+    # way_changes: node_ref -> [{"way_id": ..., "change": "added"/"removed"}]
+    way_changes: dict[str, list[dict]] = {}
     for action in root.findall("action"):
         if action.get("type") != "modify":
             continue
@@ -254,8 +275,18 @@ def _detect_node_drags_tree(root, threshold_meters):
         new_way = new.find("way")
         if old_way is None or new_way is None:
             continue
+
+        # Track membership changes
+        way_id = new_way.get("id")
+        added_refs, removed_refs = _get_way_membership_changes(old_way, new_way)
+        for ref in added_refs:
+            way_changes.setdefault(ref, []).append({"way_id": way_id, "change": "added"})
+        for ref in removed_refs:
+            way_changes.setdefault(ref, []).append({"way_id": way_id, "change": "removed"})
+
         drags.extend(_check_way_for_drag(old_way, new_way, node_info, threshold_meters))
 
+    _attach_way_membership_changes(drags, way_changes)
     return drags
 
 
@@ -267,6 +298,7 @@ def _detect_node_drags_file(path, threshold_meters):
     """
     node_info = {}
     drags = []
+    way_changes: dict[str, list[dict]] = {}
     root = None
     skip_action = False
 
@@ -302,6 +334,14 @@ def _detect_node_drags_file(path, threshold_meters):
                     old_way = old.find("way")
                     new_way = new.find("way")
                     if old_way is not None and new_way is not None:
+                        # Track membership changes
+                        way_id = new_way.get("id")
+                        added_refs, removed_refs = _get_way_membership_changes(old_way, new_way)
+                        for ref in added_refs:
+                            way_changes.setdefault(ref, []).append({"way_id": way_id, "change": "added"})
+                        for ref in removed_refs:
+                            way_changes.setdefault(ref, []).append({"way_id": way_id, "change": "removed"})
+
                         drags.extend(
                             _check_way_for_drag(
                                 old_way, new_way, node_info, threshold_meters
@@ -312,6 +352,7 @@ def _detect_node_drags_file(path, threshold_meters):
         elem.clear()
         root.remove(elem)
 
+    _attach_way_membership_changes(drags, way_changes)
     return drags
 
 
@@ -560,6 +601,16 @@ def build_drag_blocks(drags: list[dict], changeset: str, user: str) -> tuple[str
     for node_id, node_drags in by_node.items():
         way_ids = [d["way_id"] for d in node_drags]
 
+        # Collect way membership changes across all drags for this node,
+        # deduplicated by way_id
+        seen_way_ids: set[str] = set()
+        membership_changes: list[dict] = []
+        for d in node_drags:
+            for mc in d.get("way_membership_changes", []):
+                if mc["way_id"] not in seen_way_ids:
+                    seen_way_ids.add(mc["way_id"])
+                    membership_changes.append(mc)
+
         button_value = json.dumps({
             "node_id": node_id,
             "old_lat": node_drags[0]["dragged_node_old"][0],
@@ -568,6 +619,7 @@ def build_drag_blocks(drags: list[dict], changeset: str, user: str) -> tuple[str
             "new_lon": node_drags[0]["dragged_node_new"][1],
             "changeset": node_drags[0]["changeset"],
             "way_ids": way_ids,
+            "way_membership_changes": membership_changes,
         })
 
         blocks.append({
@@ -717,10 +769,19 @@ def _build_revert_instructions(value: dict) -> dict:
         ),
     ] if new_lat is not None else []
 
+    # Generate WayNodeRemove for nodes added to other ways during the drag
+    way_node_removes = []
+    for mc in value.get("way_membership_changes", []):
+        if mc.get("change") == "added":
+            way_node_removes.append(
+                revert_mod.WayNodeRemove(way_id=mc["way_id"], node_ref=node_id)
+            )
+
     return {
         "node_moves": node_moves or None,
         "node_undeletes": None,
         "way_node_swaps": None,
+        "way_node_removes": way_node_removes or None,
     }
 
 

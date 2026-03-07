@@ -353,8 +353,6 @@ def generate_drag_image(drags: list[dict]) -> bytes | None:
         return None
 
     # Collect all way coords across all affected ways
-    all_lats: list[float] = []
-    all_lons: list[float] = []
     way_pairs: list[tuple[list, list]] = []
     for drag in drags:
         old_coords = drag.get("old_way_coords", [])
@@ -362,21 +360,39 @@ def generate_drag_image(drags: list[dict]) -> bytes | None:
         if not old_coords or not new_coords:
             continue
         way_pairs.append((old_coords, new_coords))
-        all_lats.extend(c[0] for c in old_coords)
-        all_lats.extend(c[0] for c in new_coords)
-        all_lons.extend(c[1] for c in old_coords)
-        all_lons.extend(c[1] for c in new_coords)
 
-    if not all_lats:
+    if not way_pairs:
         return None
 
+    # Focus bounding box on the dragged node and its nearby neighbors
+    # rather than the entire way (which can be hundreds of meters long)
+    NEIGHBOR_COUNT = 3  # nodes on each side of the dragged node
+    focus_lats: list[float] = [node_old[0], node_new[0]]
+    focus_lons: list[float] = [node_old[1], node_new[1]]
+    for old_coords, new_coords in way_pairs:
+        for coords, ref_pos in [(old_coords, node_old), (new_coords, node_new)]:
+            # Find the dragged node in this coord list
+            best_idx = None
+            best_dist = float("inf")
+            for i, (lat, lon) in enumerate(coords):
+                d = abs(lat - ref_pos[0]) + abs(lon - ref_pos[1])
+                if d < best_dist:
+                    best_dist = d
+                    best_idx = i
+            if best_idx is not None:
+                start = max(0, best_idx - NEIGHBOR_COUNT)
+                end = min(len(coords), best_idx + NEIGHBOR_COUNT + 1)
+                for lat, lon in coords[start:end]:
+                    focus_lats.append(lat)
+                    focus_lons.append(lon)
+
     padding = 0.2
-    lat_range = max(all_lats) - min(all_lats) or 0.001
-    lon_range = max(all_lons) - min(all_lons) or 0.001
-    min_lat = min(all_lats) - lat_range * padding
-    max_lat = max(all_lats) + lat_range * padding
-    min_lon = min(all_lons) - lon_range * padding
-    max_lon = max(all_lons) + lon_range * padding
+    lat_range = max(focus_lats) - min(focus_lats) or 0.001
+    lon_range = max(focus_lons) - min(focus_lons) or 0.001
+    min_lat = min(focus_lats) - lat_range * padding
+    max_lat = max(focus_lats) + lat_range * padding
+    min_lon = min(focus_lons) - lon_range * padding
+    max_lon = max(focus_lons) + lon_range * padding
 
     zoom = _choose_zoom(min_lat, min_lon, max_lat, max_lon)
 

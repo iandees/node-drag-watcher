@@ -79,10 +79,14 @@ class RevertResult:
 POSITION_TOLERANCE = 1e-6
 
 
+_READ_HEADERS = {"User-Agent": "node-drag-watcher/0.1"}
+
+
 def _osm_headers(osm_token: str) -> dict:
     return {
         "Authorization": f"Bearer {osm_token}",
         "Content-Type": "application/xml",
+        "User-Agent": "node-drag-watcher/0.1",
     }
 
 
@@ -131,10 +135,10 @@ def fetch_node(node_id: str,
 
     For deleted nodes (410), fetches the last version via history.
     """
-    resp = requests.get(f"{api_base}/node/{node_id}", timeout=15)
+    resp = requests.get(f"{api_base}/node/{node_id}", timeout=15, headers=_READ_HEADERS)
     if resp.status_code == 410:
         # Node is deleted — fetch history and return last version
-        hist_resp = requests.get(f"{api_base}/node/{node_id}/history", timeout=15)
+        hist_resp = requests.get(f"{api_base}/node/{node_id}/history", timeout=15, headers=_READ_HEADERS)
         _check_response(hist_resp, f"fetch node {node_id} history")
         root = ET.fromstring(hist_resp.text)
         nodes = root.findall("node")
@@ -186,7 +190,7 @@ def undelete_node(osm_token: str, cs_id: str, node_elem: ET.Element,
 
 def fetch_way(way_id: str,
               api_base: str = DEFAULT_OSM_API_BASE) -> ET.Element:
-    resp = requests.get(f"{api_base}/way/{way_id}", timeout=15)
+    resp = requests.get(f"{api_base}/way/{way_id}", timeout=15, headers=_READ_HEADERS)
     _check_response(resp, f"fetch way {way_id}")
     root = ET.fromstring(resp.text)
     return root.find("way")

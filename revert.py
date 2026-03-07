@@ -81,7 +81,6 @@ POSITION_TOLERANCE = 1e-6
 
 _READ_HEADERS = {"User-Agent": "node-drag-watcher/0.1"}
 
-
 def _osm_headers(osm_token: str) -> dict:
     return {
         "Authorization": f"Bearer {osm_token}",
@@ -229,7 +228,7 @@ def comment_on_changeset(osm_token: str, changeset_id: str, text: str,
     resp = requests.post(
         f"{api_base}/changeset/{changeset_id}/comment",
         data={"text": text},
-        headers={"Authorization": f"Bearer {osm_token}"},
+        headers={"Authorization": f"Bearer {osm_token}", "User-Agent": "node-drag-watcher/0.1"},
         timeout=15,
     )
     _check_response(resp, f"comment on changeset {changeset_id}")

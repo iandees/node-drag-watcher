@@ -768,12 +768,13 @@ def handle_revert_action(ack: Callable, body: dict, client: object, osm_token: s
     except revert_mod.AlreadyRevertedError:
         _update_message_error(body, client, "Already reverted, nothing to do.")
 
-    except revert_mod.ConflictError:
-        _update_message_error(body, client, "Node was modified since drag, manual review needed.")
+    except revert_mod.ConflictError as e:
+        log.error("Conflict during revert: %s", e)
+        _update_message_error(body, client, f"Conflict: {e}")
 
     except revert_mod.AuthError as e:
         log.error("OSM auth failed: %s", e)
-        _update_message_error(body, client, "OSM auth failed, check OSM_ACCESS_TOKEN.")
+        _update_message_error(body, client, f"OSM auth failed: {e}")
 
     except Exception as e:
         log.exception("Revert failed for node %s", node_id)
@@ -832,7 +833,7 @@ def send_slack_summary(bot_token: str, channel_id: str, drags: list[dict], inter
 
 def fetch_adiff(url):
     """Fetch augmented diff XML to a temp file. Caller must delete the file."""
-    resp = requests.get(url, timeout=120, stream=True)
+    resp = requests.get(url, timeout=120, stream=True, headers={"User-Agent": "node-drag-watcher/0.1"})
     resp.raise_for_status()
     f = tempfile.NamedTemporaryFile(delete=False, suffix=".adiff")
     try:
@@ -848,7 +849,7 @@ def fetch_adiff(url):
 
 def get_latest_sequence():
     """Get the latest replication sequence number from OSM."""
-    resp = requests.get(REPLICATION_STATE_URL, timeout=10, allow_redirects=True)
+    resp = requests.get(REPLICATION_STATE_URL, timeout=10, allow_redirects=True, headers={"User-Agent": "node-drag-watcher/0.1"})
     resp.raise_for_status()
     for line in resp.text.splitlines():
         if line.startswith("sequenceNumber="):

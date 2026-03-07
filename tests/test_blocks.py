@@ -43,7 +43,10 @@ def test_button_value_contains_required_fields():
     assert value["node_id"] == "42"
     assert value["old_lat"] == 51.0
     assert value["old_lon"] == -1.0
+    assert value["new_lat"] == 51.1
+    assert value["new_lon"] == -1.1
     assert value["changeset"] == "999"
+    assert value["way_ids"] == ["111"]
 
 
 def test_button_has_confirm_dialog():

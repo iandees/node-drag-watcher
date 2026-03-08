@@ -10,7 +10,7 @@ from checkers.drag import (
     _latlon_to_pixel,
     _choose_zoom,
 )
-from watcher import upload_slack_image
+from notifiers.slack import upload_slack_image
 
 
 def _make_drag(**overrides):
@@ -142,8 +142,8 @@ def test_upload_slack_image():
     mock_post.return_value.raise_for_status = MagicMock()
     mock_post.return_value.json.return_value = {"ok": True}
 
-    with patch("watcher.requests.get", mock_get), \
-         patch("watcher.requests.post", mock_post):
+    with patch("notifiers.slack.requests.get", mock_get), \
+         patch("notifiers.slack.requests.post", mock_post):
         upload_slack_image("xoxb-test", "C123", b"fakepng", "test.png")
 
     # Step 1: getUploadURLExternal
@@ -172,8 +172,8 @@ def test_upload_slack_image_with_thread():
     mock_post.return_value.raise_for_status = MagicMock()
     mock_post.return_value.json.return_value = {"ok": True}
 
-    with patch("watcher.requests.get", mock_get), \
-         patch("watcher.requests.post", mock_post):
+    with patch("notifiers.slack.requests.get", mock_get), \
+         patch("notifiers.slack.requests.post", mock_post):
         upload_slack_image("xoxb-test", "C123", b"fakepng", "test.png", thread_ts="123.456")
 
     # completeUploadExternal should include thread_ts
@@ -183,7 +183,7 @@ def test_upload_slack_image_with_thread():
 
 def test_send_slack_summary_uploads_images_threaded():
     """Images are uploaded as threaded replies to the summary message."""
-    from watcher import send_slack_summary
+    from notifiers.slack import send_slack_summary
 
     drags = [_make_drag()]
 
@@ -191,9 +191,9 @@ def test_send_slack_summary_uploads_images_threaded():
     resp.json.return_value = {"ok": True, "ts": "111.222"}
     resp.raise_for_status = MagicMock()
 
-    with patch("watcher.requests.post", return_value=resp), \
-         patch("watcher.generate_drag_image", return_value=b"fakepng"), \
-         patch("watcher.upload_slack_image") as mock_upload:
+    with patch("notifiers.slack.requests.post", return_value=resp), \
+         patch("notifiers.slack.generate_drag_image", return_value=b"fakepng"), \
+         patch("notifiers.slack.upload_slack_image") as mock_upload:
         send_slack_summary("xoxb-test", "C123", drags)
 
         mock_upload.assert_called_once_with(

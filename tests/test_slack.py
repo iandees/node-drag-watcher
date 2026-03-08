@@ -1,5 +1,5 @@
 from unittest.mock import patch, MagicMock
-from watcher import send_slack_summary, send_slack_interactive
+from notifiers.slack import send_slack_summary, send_slack_interactive
 
 
 def _mock_post_ok():
@@ -21,7 +21,7 @@ def test_single_node_single_way():
         "old_angle": 180.0,
         "new_angle": 5.0,
     }]
-    with patch("watcher.requests.post", return_value=_mock_post_ok()) as mock_post:
+    with patch("notifiers.slack.requests.post", return_value=_mock_post_ok()) as mock_post:
         send_slack_summary("xoxb-test", "C123", drags)
         # First call is the summary, second is the reverter link
         text = mock_post.call_args_list[0][1]["json"]["text"]
@@ -47,7 +47,7 @@ def test_single_node_multiple_ways():
             "old_angle": None, "new_angle": None,
         },
     ]
-    with patch("watcher.requests.post", return_value=_mock_post_ok()) as mock_post:
+    with patch("notifiers.slack.requests.post", return_value=_mock_post_ok()) as mock_post:
         send_slack_summary("xoxb-test", "C123", drags)
         text = mock_post.call_args_list[0][1]["json"]["text"]
         assert "111" in text
@@ -71,7 +71,7 @@ def test_multiple_changesets():
             "old_angle": 180.0, "new_angle": 3.0,
         },
     ]
-    with patch("watcher.requests.post", return_value=_mock_post_ok()) as mock_post:
+    with patch("notifiers.slack.requests.post", return_value=_mock_post_ok()) as mock_post:
         send_slack_summary("xoxb-test", "C123", drags)
         # 2 summaries + 2 reverter links = 4 calls
         assert mock_post.call_count == 4
@@ -85,7 +85,7 @@ def test_substitution_node_links_to_new():
         "distance_meters": 300.0, "changeset": "999", "user": "testuser",
         "old_angle": None, "new_angle": None,
     }]
-    with patch("watcher.requests.post", return_value=_mock_post_ok()) as mock_post:
+    with patch("notifiers.slack.requests.post", return_value=_mock_post_ok()) as mock_post:
         send_slack_summary("xoxb-test", "C123", drags)
         text = mock_post.call_args_list[0][1]["json"]["text"]
         assert "node/200" in text
@@ -111,7 +111,7 @@ def _make_drag(**overrides):
 def test_interactive_delegates_to_send_slack_interactive():
     """When interactive=True, send_slack_summary delegates to send_slack_interactive."""
     drags = [_make_drag()]
-    with patch("watcher.send_slack_interactive") as mock_interactive:
+    with patch("notifiers.slack.send_slack_interactive") as mock_interactive:
         send_slack_summary("xoxb-test", "C123", drags, interactive=True)
         mock_interactive.assert_called_once_with("xoxb-test", "C123", drags)
 
@@ -119,7 +119,7 @@ def test_interactive_delegates_to_send_slack_interactive():
 def test_non_interactive_posts_summary_and_reverter():
     """Non-interactive mode posts summary then reverter link as thread."""
     drags = [_make_drag()]
-    with patch("watcher.requests.post", return_value=_mock_post_ok()) as mock_post:
+    with patch("notifiers.slack.requests.post", return_value=_mock_post_ok()) as mock_post:
         send_slack_summary("xoxb-test", "C123", drags)
         # First call: summary, second call: reverter link
         assert mock_post.call_count == 2
@@ -132,7 +132,7 @@ def test_non_interactive_posts_summary_and_reverter():
 def test_reverter_link_contains_query_params():
     """Reverter link includes changesets, query-filter, comment, discussion."""
     drags = [_make_drag()]
-    with patch("watcher.requests.post", return_value=_mock_post_ok()) as mock_post:
+    with patch("notifiers.slack.requests.post", return_value=_mock_post_ok()) as mock_post:
         send_slack_summary("xoxb-test", "C123", drags)
         reverter_text = mock_post.call_args_list[1][1]["json"]["text"]
         assert "revert.monicz.dev" in reverter_text
@@ -145,8 +145,8 @@ def test_send_slack_interactive_posts_blocks_and_reverter():
     """send_slack_interactive posts blocks then reverter link."""
     drags = [_make_drag()]
 
-    with patch("watcher.requests.post", return_value=_mock_post_ok()) as mock_post:
-        with patch("watcher.generate_drag_image", return_value=None):
+    with patch("notifiers.slack.requests.post", return_value=_mock_post_ok()) as mock_post:
+        with patch("notifiers.slack.generate_drag_image", return_value=None):
             send_slack_interactive("xoxb-test", "C123", drags)
 
     # First call: summary with blocks, second: reverter link

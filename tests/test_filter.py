@@ -3,7 +3,7 @@
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from watcher import detect_node_drags, filter_drags
+from checkers.drag import detect_node_drags, filter_drags
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

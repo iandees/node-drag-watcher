@@ -372,11 +372,14 @@ def _format_tag_issue_text(issues: list[Issue], changeset: str, user: str) -> st
         "phone_format": ":telephone_receiver: Phone formatting",
         "website_cleanup": ":globe_with_meridians: Website cleanup",
     }
-    check_name = issues[0].check_name
-    label = check_labels.get(check_name, check_name)
+
+    # Collect unique check types for the header
+    check_names = list(dict.fromkeys(i.check_name for i in issues))
+    labels = [check_labels.get(cn, cn) for cn in check_names]
+    header = " + ".join(labels)
 
     lines = [
-        f"{label} needed in "
+        f"{header} needed in "
         f"<https://osmcha.org/changesets/{changeset}|changeset {changeset}> "
         f"by {user}",
     ]
@@ -392,7 +395,7 @@ def _format_tag_issue_text(issues: list[Issue], changeset: str, user: str) -> st
 
 
 def build_tag_issue_blocks(issues: list[Issue], changeset: str, user: str) -> tuple[str, list[dict]]:
-    """Build Block Kit blocks for tag issue alerts."""
+    """Build Block Kit blocks for tag issue alerts with a single fix button."""
     text = _format_tag_issue_text(issues, changeset, user)
 
     blocks: list[dict] = [
@@ -400,7 +403,6 @@ def build_tag_issue_blocks(issues: list[Issue], changeset: str, user: str) -> tu
     ]
 
     value_dict = {
-        "check_name": issues[0].check_name,
         "changeset": changeset,
         "issues": [
             {
@@ -415,15 +417,13 @@ def build_tag_issue_blocks(issues: list[Issue], changeset: str, user: str) -> tu
     }
 
     button_value = json.dumps(value_dict)
-    n_elements = len(issues)
-    check_name = issues[0].check_name
-    action_label = "Format" if check_name == "phone_format" else "Clean up"
+    n_fixes = sum(len(i.tags_after) for i in issues)
 
     blocks.append({
         "type": "actions",
         "elements": [{
             "type": "button",
-            "text": {"type": "plain_text", "text": f"{action_label}"},
+            "text": {"type": "plain_text", "text": "Fix all"},
             "style": "primary",
             "action_id": "fix_tags",
             "value": button_value,
@@ -431,7 +431,7 @@ def build_tag_issue_blocks(issues: list[Issue], changeset: str, user: str) -> tu
                 "title": {"type": "plain_text", "text": "Confirm Fix"},
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"Fix {n_elements} element{'s' if n_elements != 1 else ''}?",
+                    "text": f"Apply {n_fixes} tag fix{'es' if n_fixes != 1 else ''}?",
                 },
                 "confirm": {"type": "plain_text", "text": "Fix"},
                 "deny": {"type": "plain_text", "text": "Cancel"},
@@ -444,14 +444,13 @@ def build_tag_issue_blocks(issues: list[Issue], changeset: str, user: str) -> tu
 
 def send_tag_issue_summary(bot_token: str, channel_id: str, issues: list[Issue],
                            interactive: bool = False) -> None:
-    """Post tag issue alerts to Slack, grouped by changeset and check type."""
-    # Group by (changeset, check_name)
-    groups: dict[tuple[str, str], list[Issue]] = {}
+    """Post tag issue alerts to Slack, grouped by changeset."""
+    # Group by changeset so all fixes go in one message/button
+    groups: dict[str, list[Issue]] = {}
     for issue in issues:
-        key = (issue.changeset, issue.check_name)
-        groups.setdefault(key, []).append(issue)
+        groups.setdefault(issue.changeset, []).append(issue)
 
-    for (changeset, check_name), group_issues in groups.items():
+    for changeset, group_issues in groups.items():
         user = group_issues[0].user
         if interactive:
             text, blocks = build_tag_issue_blocks(group_issues, changeset, user)
@@ -468,7 +467,6 @@ def handle_tag_fix_action(ack: Callable, body: dict, client: object, osm_token: 
 
     action = body["actions"][0]
     value = json.loads(action["value"])
-    check_name = value["check_name"]
 
     user = body["user"]["username"]
     channel = body["channel"]["id"]
@@ -482,7 +480,7 @@ def handle_tag_fix_action(ack: Callable, body: dict, client: object, osm_token: 
             element_version=i["element_version"],
             changeset=value["changeset"],
             user="",
-            check_name=check_name,
+            check_name="",
             summary="",
             tags_before=i["tags_before"],
             tags_after=i["tags_after"],

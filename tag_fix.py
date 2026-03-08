@@ -101,36 +101,49 @@ def fix_tags(
 ) -> str:
     """Apply tag corrections from issues to OSM.
 
-    All issues should be for the same changeset.
+    All issues should be for the same changeset. Multiple issues for the
+    same element are merged into a single update to avoid version conflicts.
     Returns the new changeset ID.
     """
-    # Verify versions and collect updates
-    updates: list[tuple[Issue, ET.Element]] = []
-
+    # Group issues by element so multiple tag fixes on the same element
+    # are applied in one PUT request
+    element_key = lambda i: (i.element_type, i.element_id)
+    grouped: dict[tuple[str, str], list[Issue]] = {}
     for issue in issues:
-        elem = _fetch_element(issue.element_type, issue.element_id, api_base)
-        current_version = elem.get("version")
-        if current_version != issue.element_version:
-            raise VersionConflictError(
-                f"{issue.element_type} {issue.element_id}: "
-                f"version {issue.element_version} → {current_version}"
-            )
-        updates.append((issue, elem))
+        grouped.setdefault(element_key(issue), []).append(issue)
 
-    # Create changeset
-    comment = f"Fix tag formatting ({issues[0].check_name})"
+    # Verify versions and collect merged updates
+    updates: list[tuple[str, str, ET.Element, dict[str, str]]] = []
+
+    for (etype, eid), element_issues in grouped.items():
+        elem = _fetch_element(etype, eid, api_base)
+        current_version = elem.get("version")
+        expected_version = element_issues[0].element_version
+        if current_version != expected_version:
+            raise VersionConflictError(
+                f"{etype} {eid}: version {expected_version} → {current_version}"
+            )
+        # Merge all tag updates for this element
+        merged_tags: dict[str, str] = {}
+        for issue in element_issues:
+            merged_tags.update(issue.tags_after)
+        updates.append((etype, eid, elem, merged_tags))
+
+    # Build changeset comment from check names
+    check_names = list(dict.fromkeys(i.check_name for i in issues if i.check_name))
+    comment = f"Fix tag formatting ({', '.join(check_names or ['tags'])})"
     cs_id = create_changeset(osm_token, comment, api_base=api_base)
 
     try:
-        for issue, elem in updates:
-            xml = _build_element_xml(elem, cs_id, issue.tags_after)
+        for etype, eid, elem, tag_updates in updates:
+            xml = _build_element_xml(elem, cs_id, tag_updates)
             resp = requests.put(
-                f"{api_base}/{issue.element_type}/{issue.element_id}",
+                f"{api_base}/{etype}/{eid}",
                 data=xml,
                 headers=_osm_headers(osm_token),
                 timeout=15,
             )
-            _check_response(resp, f"update {issue.element_type} {issue.element_id}")
+            _check_response(resp, f"update {etype} {eid}")
     finally:
         close_changeset(osm_token, cs_id, api_base=api_base)
 

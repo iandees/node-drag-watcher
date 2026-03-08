@@ -14,15 +14,16 @@ def _ok(text="", status=200):
 
 
 def _make_issue(element_type="node", element_id="123", element_version="5",
-                tags_before=None, tags_after=None, **kwargs):
+                tags_before=None, tags_after=None, check_name="phone_format",
+                summary="phone: 2125551234 → +1 212-555-1234", **kwargs):
     return Issue(
         element_type=element_type,
         element_id=element_id,
         element_version=element_version,
         changeset="999",
         user="testuser",
-        check_name="phone_format",
-        summary="phone: 2125551234 → +1 212-555-1234",
+        check_name=check_name,
+        summary=summary,
         tags_before=tags_before or {"phone": "2125551234"},
         tags_after=tags_after or {"phone": "+1 212-555-1234"},
         **kwargs,
@@ -73,6 +74,42 @@ class TestFixTags:
 
             with pytest.raises(VersionConflictError):
                 fix_tags("token", [issue])
+
+    def test_merges_multiple_issues_same_element(self):
+        """Two issues on the same element should produce one PUT."""
+        current_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<osm><node id="123" version="5" lat="40.7" lon="-74.0">'
+            '<tag k="phone" v="2125551234"/>'
+            '<tag k="website" v="example.com"/>'
+            '</node></osm>'
+        )
+        phone_issue = _make_issue(
+            tags_before={"phone": "2125551234"},
+            tags_after={"phone": "+1 212-555-1234"},
+        )
+        website_issue = _make_issue(
+            check_name="website_cleanup",
+            summary="website fix",
+            tags_before={"website": "example.com"},
+            tags_after={"website": "https://example.com"},
+        )
+
+        with patch("tag_fix.requests") as mock_req, \
+             patch("tag_fix.create_changeset", return_value="777"), \
+             patch("tag_fix.close_changeset"):
+            mock_req.get = MagicMock(return_value=_ok(current_xml))
+            mock_req.put = MagicMock(return_value=_ok("6"))
+
+            cs_id = fix_tags("token", [phone_issue, website_issue])
+
+        assert cs_id == "777"
+        # Only one GET (one element) and one PUT (merged)
+        assert mock_req.get.call_count == 1
+        assert mock_req.put.call_count == 1
+        data = mock_req.put.call_args[1]["data"]
+        assert "+1 212-555-1234" in data
+        assert "https://example.com" in data
 
     def test_way_element(self):
         """Works for ways too."""

@@ -45,6 +45,11 @@ class TestNormalizeUrl:
         assert "id=42" in result
         assert "utm_source" not in result
 
+    def test_fixes_truncated_scheme(self):
+        assert _normalize_url("ttps://bankonbuffalo.bank") == "https://bankonbuffalo.bank"
+        assert _normalize_url("ttp://example.com") == "https://example.com"
+        assert _normalize_url("htp://example.com") == "https://example.com"
+
     def test_strips_trailing_slash_bare_domain(self):
         assert _normalize_url("https://example.com/") == "https://example.com"
 

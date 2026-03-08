@@ -1,10 +1,8 @@
 """Watch OSM augmented diffs for accidental node drags."""
 
 import argparse
-import io
 import json
 import logging
-import math
 import os
 import sys
 import tempfile
@@ -14,7 +12,6 @@ from collections.abc import Callable
 import xml.etree.ElementTree as ET
 
 import requests
-from PIL import Image, ImageDraw
 
 import revert as revert_mod
 
@@ -23,6 +20,7 @@ from checkers.drag import (
     angle_at_node,
     detect_node_drags,
     filter_drags,
+    generate_drag_image,
 )
 
 from pythonjsonlogger.json import JsonFormatter
@@ -42,154 +40,6 @@ REPLICATION_STATE_URL = "https://planet.openstreetmap.org/replication/minute/sta
 
 
 
-
-
-def _lon_to_tile_x(lon, zoom):
-    """Convert longitude to fractional tile X coordinate."""
-    return (lon + 180.0) / 360.0 * (2 ** zoom)
-
-
-def _lat_to_tile_y(lat, zoom):
-    """Convert latitude to fractional tile Y coordinate."""
-    lat_rad = math.radians(lat)
-    return (1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi) / 2.0 * (2 ** zoom)
-
-
-def _latlon_to_pixel(lat, lon, zoom, origin_tx, origin_ty):
-    """Convert lat/lon to pixel coordinates relative to tile origin."""
-    x = (_lon_to_tile_x(lon, zoom) - origin_tx) * 256
-    y = (_lat_to_tile_y(lat, zoom) - origin_ty) * 256
-    return int(x), int(y)
-
-
-def _choose_zoom(min_lat, min_lon, max_lat, max_lon, target_size=512):
-    """Choose a zoom level so the bounding box fits within target_size pixels."""
-    for zoom in range(18, 0, -1):
-        x_span = (_lon_to_tile_x(max_lon, zoom) - _lon_to_tile_x(min_lon, zoom)) * 256
-        y_span = (_lat_to_tile_y(min_lat, zoom) - _lat_to_tile_y(max_lat, zoom)) * 256
-        if x_span <= target_size and y_span <= target_size:
-            return zoom
-    return 1
-
-
-def generate_drag_image(drags: list[dict]) -> bytes | None:
-    """Generate a PNG image showing all affected ways for a node drag.
-
-    drags is a list of drag dicts for the same node (one per affected way).
-    Returns PNG bytes or None on failure.
-    """
-    if not drags:
-        return None
-
-    node_old = drags[0].get("dragged_node_old")
-    node_new = drags[0].get("dragged_node_new")
-    if not node_old or not node_new:
-        return None
-
-    # Collect all way coords across all affected ways
-    way_pairs: list[tuple[list, list]] = []
-    for drag in drags:
-        old_coords = drag.get("old_way_coords", [])
-        new_coords = drag.get("new_way_coords", [])
-        if not old_coords or not new_coords:
-            continue
-        way_pairs.append((old_coords, new_coords))
-
-    if not way_pairs:
-        return None
-
-    # Focus bounding box on the dragged node and its nearby neighbors
-    # rather than the entire way (which can be hundreds of meters long)
-    NEIGHBOR_COUNT = 3  # nodes on each side of the dragged node
-    focus_lats: list[float] = [node_old[0], node_new[0]]
-    focus_lons: list[float] = [node_old[1], node_new[1]]
-    for old_coords, new_coords in way_pairs:
-        for coords, ref_pos in [(old_coords, node_old), (new_coords, node_new)]:
-            # Find the dragged node in this coord list
-            best_idx = None
-            best_dist = float("inf")
-            for i, (lat, lon) in enumerate(coords):
-                d = abs(lat - ref_pos[0]) + abs(lon - ref_pos[1])
-                if d < best_dist:
-                    best_dist = d
-                    best_idx = i
-            if best_idx is not None:
-                start = max(0, best_idx - NEIGHBOR_COUNT)
-                end = min(len(coords), best_idx + NEIGHBOR_COUNT + 1)
-                for lat, lon in coords[start:end]:
-                    focus_lats.append(lat)
-                    focus_lons.append(lon)
-
-    padding = 0.2
-    lat_range = max(focus_lats) - min(focus_lats) or 0.001
-    lon_range = max(focus_lons) - min(focus_lons) or 0.001
-    min_lat = min(focus_lats) - lat_range * padding
-    max_lat = max(focus_lats) + lat_range * padding
-    min_lon = min(focus_lons) - lon_range * padding
-    max_lon = max(focus_lons) + lon_range * padding
-
-    zoom = _choose_zoom(min_lat, min_lon, max_lat, max_lon)
-
-    tx_min = int(_lon_to_tile_x(min_lon, zoom))
-    tx_max = int(_lon_to_tile_x(max_lon, zoom))
-    ty_min = int(_lat_to_tile_y(max_lat, zoom))
-    ty_max = int(_lat_to_tile_y(min_lat, zoom))
-
-    img_w = (tx_max - tx_min + 1) * 256
-    img_h = (ty_max - ty_min + 1) * 256
-    img = Image.new("RGB", (img_w, img_h))
-
-    for ty in range(ty_min, ty_max + 1):
-        for tx in range(tx_min, tx_max + 1):
-            tile_url = f"https://tile.openstreetmap.org/{zoom}/{tx}/{ty}.png"
-            try:
-                resp = requests.get(
-                    tile_url,
-                    timeout=10,
-                    headers={"User-Agent": "node-drag-watcher/0.1"},
-                )
-                resp.raise_for_status()
-                tile = Image.open(io.BytesIO(resp.content))
-                img.paste(tile, ((tx - tx_min) * 256, (ty - ty_min) * 256))
-            except Exception:
-                log.debug("Failed to fetch tile %s/%s/%s", zoom, tx, ty)
-
-    draw = ImageDraw.Draw(img)
-
-    def to_px(lat: float, lon: float) -> tuple[int, int]:
-        return _latlon_to_pixel(lat, lon, zoom, tx_min, ty_min)
-
-    # Draw all ways
-    for old_coords, new_coords in way_pairs:
-        if len(old_coords) >= 2:
-            draw.line([to_px(lat, lon) for lat, lon in old_coords], fill=(0, 100, 255), width=3)
-        if len(new_coords) >= 2:
-            draw.line([to_px(lat, lon) for lat, lon in new_coords], fill=(255, 50, 50), width=3)
-
-    # Draw dragged node positions
-    ox, oy = to_px(*node_old)
-    draw.ellipse([ox - 6, oy - 6, ox + 6, oy + 6], fill=(0, 100, 255), outline=(255, 255, 255), width=2)
-    nx, ny = to_px(*node_new)
-    draw.ellipse([nx - 6, ny - 6, nx + 6, ny + 6], fill=(255, 50, 50), outline=(255, 255, 255), width=2)
-
-    # Arrow from old to new
-    draw.line([(ox, oy), (nx, ny)], fill=(80, 80, 80), width=1)
-    dx, dy = nx - ox, ny - oy
-    length = math.sqrt(dx * dx + dy * dy)
-    if length > 0:
-        ux, uy = dx / length, dy / length
-        px, py = -uy, ux
-        head_len = min(8, length * 0.3)
-        head_w = head_len * 0.5
-        draw.polygon([
-            (nx, ny),
-            (nx - ux * head_len + px * head_w, ny - uy * head_len + py * head_w),
-            (nx - ux * head_len - px * head_w, ny - uy * head_len - py * head_w),
-        ], fill=(80, 80, 80))
-
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
 
 
 def upload_slack_image(

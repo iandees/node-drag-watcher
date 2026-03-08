@@ -3,14 +3,14 @@ from unittest.mock import patch, MagicMock
 
 from PIL import Image
 
-from watcher import (
+from checkers.drag import (
     generate_drag_image,
-    upload_slack_image,
     _lon_to_tile_x,
     _lat_to_tile_y,
     _latlon_to_pixel,
     _choose_zoom,
 )
+from watcher import upload_slack_image
 
 
 def _make_drag(**overrides):
@@ -74,7 +74,7 @@ def test_generate_drag_image_produces_png():
     mock_resp.content = tile_png
     mock_resp.raise_for_status = MagicMock()
 
-    with patch("watcher.requests.get", return_value=mock_resp):
+    with patch("checkers.drag.requests.get", return_value=mock_resp):
         result = generate_drag_image(drags)
 
     assert result is not None
@@ -97,7 +97,7 @@ def test_generate_drag_image_multiple_ways():
     mock_resp.content = tile_png
     mock_resp.raise_for_status = MagicMock()
 
-    with patch("watcher.requests.get", return_value=mock_resp):
+    with patch("checkers.drag.requests.get", return_value=mock_resp):
         result = generate_drag_image(drags)
 
     assert result is not None
@@ -119,7 +119,7 @@ def test_generate_drag_image_tile_failure():
     """Image generation should still succeed even if tile fetches fail."""
     drags = [_make_drag()]
 
-    with patch("watcher.requests.get", side_effect=Exception("network error")):
+    with patch("checkers.drag.requests.get", side_effect=Exception("network error")):
         result = generate_drag_image(drags)
 
     # Should still return an image (with blank tiles)

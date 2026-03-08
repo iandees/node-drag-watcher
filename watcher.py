@@ -12,7 +12,7 @@ import requests
 
 from checkers import Action, Issue
 from checkers.drag import (
-    detect_node_drags,
+    detect_drags_from_actions,
     filter_drags,
 )
 from checkers.phone import PhoneChecker
@@ -165,22 +165,32 @@ def iter_adiff_actions_from_file(path: str):
     """Yield Action objects by streaming an adiff file (low memory).
 
     Uses iterparse to process one <action> at a time without loading the
-    entire XML tree into memory.
+    entire XML tree into memory. Skips relation actions by clearing their
+    children as they parse (relations can have millions of members).
     """
     root = None
+    skip_action = False
     for event, elem in ET.iterparse(path, events=("start", "end")):
         if event == "start":
             if root is None:
                 root = elem
+            elif elem.tag == "relation":
+                skip_action = True
             continue
 
+        # event == "end"
         if elem.tag != "action":
+            # Clear children of skipped relations as they parse
+            if skip_action:
+                elem.clear()
             continue
 
-        action = _parse_action_element(elem)
-        if action is not None:
-            yield action
+        if not skip_action:
+            action = _parse_action_element(elem)
+            if action is not None:
+                yield action
 
+        skip_action = False
         elem.clear()
         if root is not None:
             root.remove(elem)
@@ -236,15 +246,17 @@ def process_adiff(url: str, threshold_meters: float, bot_token: str | None = Non
     """Fetch an adiff, detect drags and tag issues, and optionally alert."""
     path = fetch_adiff(url)
     try:
-        drags = detect_node_drags(path, threshold_meters=threshold_meters)
-
-        # Stream-parse for tag checkers (low memory)
-        tag_issues: list[Issue] = []
-        for action in iter_adiff_actions_from_file(path):
-            for checker in _tag_checkers:
-                tag_issues.extend(checker.check(action))
+        # Single streaming parse for all checkers
+        actions = list(iter_adiff_actions_from_file(path))
     finally:
         os.unlink(path)
+
+    drags = detect_drags_from_actions(actions, threshold_meters=threshold_meters)
+
+    tag_issues: list[Issue] = []
+    for action in actions:
+        for checker in _tag_checkers:
+            tag_issues.extend(checker.check(action))
 
     drags = filter_drags(drags)
     for drag in drags:

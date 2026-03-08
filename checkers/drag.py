@@ -4,9 +4,12 @@ import io
 import logging
 import math
 import xml.etree.ElementTree as ET
+from collections.abc import Iterable
 
 import requests
 from PIL import Image, ImageDraw
+
+from checkers import Action
 
 log = logging.getLogger(__name__)
 
@@ -38,29 +41,19 @@ def angle_at_node(prev, node, next_):
     return math.degrees(math.acos(cos_angle))
 
 
-def _get_way_membership_changes(old_way, new_way):
-    """Return (added_refs, removed_refs) for a way modification."""
-    old_refs = {nd.get("ref") for nd in old_way.findall("nd")}
-    new_refs = {nd.get("ref") for nd in new_way.findall("nd")}
-    return new_refs - old_refs, old_refs - new_refs
-
-
-def _check_way_for_drag(old_way, new_way, node_info, threshold_meters):
-    """Check a single way modification action for a node drag.
+def _check_way_action_for_drag(action: Action, node_info: dict, threshold_meters: float) -> list[dict]:
+    """Check a single way modify action for a node drag.
 
     Returns a list of drag dicts (usually 0 or 1 items).
     """
-    old_nd_list = [
-        (nd.get("ref"), float(nd.get("lat")), float(nd.get("lon")))
-        for nd in old_way.findall("nd")
-    ]
-    new_nd_list = [
-        (nd.get("ref"), float(nd.get("lat")), float(nd.get("lon")))
-        for nd in new_way.findall("nd")
-    ]
+    if (action.nd_refs_old is None or action.nd_refs_new is None
+            or action.node_coords_old is None or action.node_coords_new is None):
+        return []
 
-    old_nds = {ref: (lat, lon) for ref, lat, lon in old_nd_list}
-    new_nds = {ref: (lat, lon) for ref, lat, lon in new_nd_list}
+    old_nds = action.node_coords_old
+    new_nds = action.node_coords_new
+    old_refs = action.nd_refs_old
+    new_refs = action.nd_refs_new
 
     common_refs = set(old_nds) & set(new_nds)
 
@@ -76,16 +69,17 @@ def _check_way_for_drag(old_way, new_way, node_info, threshold_meters):
     # Check for node substitutions (node ref replaced by a different ref,
     # e.g. user dragged a node onto another node and the editor merged them)
     substituted = []
-    old_only = [ref for ref, _, _ in old_nd_list if ref not in new_nds]
-    new_only = [ref for ref, _, _ in new_nd_list if ref not in old_nds]
+    old_only = [ref for ref in old_refs if ref not in new_nds]
+    new_only = [ref for ref in new_refs if ref not in old_nds]
     if len(old_only) == 1 and len(new_only) == 1:
         old_ref = old_only[0]
         new_ref = new_only[0]
-        old_lat, old_lon = old_nds[old_ref]
-        new_lat, new_lon = new_nds[new_ref]
-        dist = haversine_distance(old_lat, old_lon, new_lat, new_lon)
-        if dist >= threshold_meters:
-            substituted.append((old_ref, new_ref, dist))
+        if old_ref in old_nds and new_ref in new_nds:
+            old_lat, old_lon = old_nds[old_ref]
+            new_lat, new_lon = new_nds[new_ref]
+            dist = haversine_distance(old_lat, old_lon, new_lat, new_lon)
+            if dist >= threshold_meters:
+                substituted.append((old_ref, new_ref, dist))
 
     # Exactly one anomaly total, and at least one other node stayed put
     total_anomalies = len(moved) + len(substituted)
@@ -93,21 +87,16 @@ def _check_way_for_drag(old_way, new_way, node_info, threshold_meters):
     if total_anomalies != 1 or stable_nodes < 1:
         return []
 
-    way_name = ""
-    for tag in new_way.findall("tag"):
-        if tag.get("k") == "name":
-            way_name = tag.get("v", "")
-            break
+    way_name = action.tags_new.get("name", "")
 
-    # Compute angle at the moved/substituted node
-    new_refs = [ref for ref, _, _ in new_nd_list]
-    old_refs = [ref for ref, _, _ in old_nd_list]
+    old_way_coords = [(old_nds[r][0], old_nds[r][1]) for r in old_refs if r in old_nds]
+    new_way_coords = [(new_nds[r][0], new_nds[r][1]) for r in new_refs if r in new_nds]
 
     if moved:
         node_ref, distance = moved[0]
         info = node_info.get(node_ref, {})
-        changeset = info.get("changeset") or new_way.get("changeset", "")
-        user = info.get("user") or new_way.get("user", "")
+        changeset = info.get("changeset") or action.changeset
+        user = info.get("user") or action.user
 
         # Angle at moved node in old and new geometry
         old_angle = None
@@ -141,7 +130,7 @@ def _check_way_for_drag(old_way, new_way, node_info, threshold_meters):
             way_angle_delta_sum = round(total, 1)
 
         return [{
-            "way_id": new_way.get("id"),
+            "way_id": action.element_id,
             "way_name": way_name,
             "node_id": node_ref,
             "is_substitution": False,
@@ -151,15 +140,13 @@ def _check_way_for_drag(old_way, new_way, node_info, threshold_meters):
             "old_angle": old_angle,
             "new_angle": new_angle,
             "way_angle_delta_sum": way_angle_delta_sum,
-            "old_way_coords": [(lat, lon) for _, lat, lon in old_nd_list],
-            "new_way_coords": [(lat, lon) for _, lat, lon in new_nd_list],
+            "old_way_coords": old_way_coords,
+            "new_way_coords": new_way_coords,
             "dragged_node_old": old_nds[node_ref],
             "dragged_node_new": new_nds[node_ref],
         }]
     elif substituted:
         old_ref, new_ref, distance = substituted[0]
-        changeset = new_way.get("changeset", "")
-        user = new_way.get("user", "")
 
         # Angle at the new node position
         new_angle = None
@@ -179,35 +166,24 @@ def _check_way_for_drag(old_way, new_way, node_info, threshold_meters):
                 ), 1)
 
         return [{
-            "way_id": new_way.get("id"),
+            "way_id": action.element_id,
             "way_name": way_name,
             "node_id": new_ref,
             "old_node_ref": old_ref,
             "is_substitution": True,
             "distance_meters": round(distance, 1),
-            "changeset": changeset,
-            "user": user,
+            "changeset": action.changeset,
+            "user": action.user,
             "old_angle": old_angle,
             "new_angle": new_angle,
             "way_angle_delta_sum": None,
-            "old_way_coords": [(lat, lon) for _, lat, lon in old_nd_list],
-            "new_way_coords": [(lat, lon) for _, lat, lon in new_nd_list],
+            "old_way_coords": old_way_coords,
+            "new_way_coords": new_way_coords,
             "dragged_node_old": old_nds[old_ref],
             "dragged_node_new": new_nds[new_ref],
         }]
 
     return []
-
-
-def detect_node_drags(source, threshold_meters=10):
-    """Detect single-node drags in an augmented diff.
-
-    source can be an Element (for tests) or a file path (for streaming parse).
-    Returns a list of dicts with info about each detected drag.
-    """
-    if isinstance(source, ET.Element):
-        return _detect_node_drags_tree(source, threshold_meters)
-    return _detect_node_drags_file(source, threshold_meters)
 
 
 def _attach_way_membership_changes(drags, way_changes):
@@ -222,117 +198,60 @@ def _attach_way_membership_changes(drags, way_changes):
         drag["way_membership_changes"] = changes
 
 
-def _detect_node_drags_tree(root, threshold_meters):
-    """Detect drags from an in-memory XML tree (two-pass)."""
-    # First pass: collect changeset/user info from node modification actions
+def detect_drags_from_actions(actions: Iterable[Action], threshold_meters: float = 10) -> list[dict]:
+    """Detect single-node drags from an iterable of Action objects.
+
+    Two-pass: first collects node changeset/user info, then checks ways.
+    For streaming use, pass a list (actions are consumed twice).
+    """
+    actions = list(actions)
+
+    # First pass: collect changeset/user info from node modifications
     node_info = {}
-    for action in root.findall("action"):
-        if action.get("type") != "modify":
-            continue
-        new = action.find("new")
-        if new is None:
-            continue
-        node = new.find("node")
-        if node is not None:
-            node_info[node.get("id")] = {
-                "changeset": node.get("changeset", ""),
-                "user": node.get("user", ""),
+    for action in actions:
+        if action.action_type == "modify" and action.element_type == "node":
+            node_info[action.element_id] = {
+                "changeset": action.changeset,
+                "user": action.user,
             }
 
-    # Second pass: look at ways for single-node drags and track membership changes
+    # Second pass: check ways for drags and track membership changes
     drags = []
-    # way_changes: node_ref -> [{"way_id": ..., "change": "added"/"removed"}]
     way_changes: dict[str, list[dict]] = {}
-    for action in root.findall("action"):
-        if action.get("type") != "modify":
+    for action in actions:
+        if action.action_type != "modify" or action.element_type != "way":
             continue
-        old = action.find("old")
-        new = action.find("new")
-        if old is None or new is None:
-            continue
-        old_way = old.find("way")
-        new_way = new.find("way")
-        if old_way is None or new_way is None:
+        if action.nd_refs_old is None or action.nd_refs_new is None:
             continue
 
         # Track membership changes
-        way_id = new_way.get("id")
-        added_refs, removed_refs = _get_way_membership_changes(old_way, new_way)
-        for ref in added_refs:
-            way_changes.setdefault(ref, []).append({"way_id": way_id, "change": "added"})
-        for ref in removed_refs:
-            way_changes.setdefault(ref, []).append({"way_id": way_id, "change": "removed"})
+        old_set = set(action.nd_refs_old)
+        new_set = set(action.nd_refs_new)
+        for ref in new_set - old_set:
+            way_changes.setdefault(ref, []).append({"way_id": action.element_id, "change": "added"})
+        for ref in old_set - new_set:
+            way_changes.setdefault(ref, []).append({"way_id": action.element_id, "change": "removed"})
 
-        drags.extend(_check_way_for_drag(old_way, new_way, node_info, threshold_meters))
+        drags.extend(_check_way_action_for_drag(action, node_info, threshold_meters))
 
     _attach_way_membership_changes(drags, way_changes)
     return drags
 
 
-def _detect_node_drags_file(path, threshold_meters):
-    """Detect drags by streaming an XML file (single-pass, low memory).
+def detect_node_drags(source, threshold_meters=10):
+    """Detect single-node drags in an augmented diff.
 
-    Uses start/end events to skip relation actions (which can have millions
-    of descendants) by clearing their children as they are parsed.
+    source can be an Element (for tests) or a file path (for streaming parse).
+    Returns a list of dicts with info about each detected drag.
+
+    Deprecated: prefer detect_drags_from_actions() with pre-parsed Actions.
     """
-    node_info = {}
-    drags = []
-    way_changes: dict[str, list[dict]] = {}
-    root = None
-    skip_action = False
-
-    for event, elem in ET.iterparse(path, events=("start", "end")):
-        if event == "start":
-            if root is None:
-                root = elem
-            elif elem.tag == "relation":
-                skip_action = True
-            continue
-
-        # event == "end"
-        if elem.tag != "action":
-            if skip_action:
-                elem.clear()
-            continue
-
-        # End of an <action> element
-        if not skip_action and elem.get("type") == "modify":
-            new = elem.find("new")
-            if new is not None:
-                # Collect node changeset/user info
-                node = new.find("node")
-                if node is not None:
-                    node_info[node.get("id")] = {
-                        "changeset": node.get("changeset", ""),
-                        "user": node.get("user", ""),
-                    }
-
-                # Check for way drags
-                old = elem.find("old")
-                if old is not None:
-                    old_way = old.find("way")
-                    new_way = new.find("way")
-                    if old_way is not None and new_way is not None:
-                        # Track membership changes
-                        way_id = new_way.get("id")
-                        added_refs, removed_refs = _get_way_membership_changes(old_way, new_way)
-                        for ref in added_refs:
-                            way_changes.setdefault(ref, []).append({"way_id": way_id, "change": "added"})
-                        for ref in removed_refs:
-                            way_changes.setdefault(ref, []).append({"way_id": way_id, "change": "removed"})
-
-                        drags.extend(
-                            _check_way_for_drag(
-                                old_way, new_way, node_info, threshold_meters
-                            )
-                        )
-
-        skip_action = False
-        elem.clear()
-        root.remove(elem)
-
-    _attach_way_membership_changes(drags, way_changes)
-    return drags
+    from watcher import parse_adiff_actions, iter_adiff_actions_from_file
+    if isinstance(source, ET.Element):
+        actions = parse_adiff_actions(source)
+    else:
+        actions = list(iter_adiff_actions_from_file(source))
+    return detect_drags_from_actions(actions, threshold_meters)
 
 
 def filter_drags(drags):

@@ -10,6 +10,7 @@ import xml.etree.ElementTree as ET
 
 import requests
 
+from checkers import Action
 from checkers.drag import (
     detect_node_drags,
     filter_drags,
@@ -34,6 +35,121 @@ ADIFF_BASE = "https://adiffs.osmcha.org"
 REPLICATION_STATE_URL = "https://planet.openstreetmap.org/replication/minute/state.txt"
 
 
+def _extract_tags(elem: ET.Element) -> dict[str, str]:
+    """Extract tags from an OSM element."""
+    return {tag.get("k"): tag.get("v", "") for tag in elem.findall("tag")}
+
+
+def _extract_node_action(action_type: str, old_elem, new_elem) -> Action:
+    """Build an Action from a node action element."""
+    primary = new_elem if new_elem is not None else old_elem
+    return Action(
+        action_type=action_type,
+        element_type="node",
+        element_id=primary.get("id"),
+        version=primary.get("version", ""),
+        changeset=primary.get("changeset", ""),
+        user=primary.get("user", ""),
+        tags_old=_extract_tags(old_elem) if old_elem is not None else {},
+        tags_new=_extract_tags(new_elem) if new_elem is not None else {},
+        coords_old=(float(old_elem.get("lat")), float(old_elem.get("lon")))
+            if old_elem is not None and old_elem.get("lat") else None,
+        coords_new=(float(new_elem.get("lat")), float(new_elem.get("lon")))
+            if new_elem is not None and new_elem.get("lat") else None,
+    )
+
+
+def _extract_way_action(action_type: str, old_elem, new_elem) -> Action:
+    """Build an Action from a way action element."""
+    primary = new_elem if new_elem is not None else old_elem
+
+    def _way_data(way):
+        if way is None:
+            return None, None, {}
+        refs = [nd.get("ref") for nd in way.findall("nd")]
+        coords = {}
+        for nd in way.findall("nd"):
+            lat, lon = nd.get("lat"), nd.get("lon")
+            if lat and lon:
+                coords[nd.get("ref")] = (float(lat), float(lon))
+        return refs, coords if coords else None, _extract_tags(way)
+
+    old_refs, old_coords, old_tags = _way_data(old_elem)
+    new_refs, new_coords, new_tags = _way_data(new_elem)
+
+    return Action(
+        action_type=action_type,
+        element_type="way",
+        element_id=primary.get("id"),
+        version=primary.get("version", ""),
+        changeset=primary.get("changeset", ""),
+        user=primary.get("user", ""),
+        tags_old=old_tags,
+        tags_new=new_tags,
+        nd_refs_old=old_refs,
+        nd_refs_new=new_refs,
+        node_coords_old=old_coords,
+        node_coords_new=new_coords,
+    )
+
+
+def _extract_relation_action(action_type: str, old_elem, new_elem) -> Action:
+    """Build an Action from a relation action element."""
+    primary = new_elem if new_elem is not None else old_elem
+    return Action(
+        action_type=action_type,
+        element_type="relation",
+        element_id=primary.get("id"),
+        version=primary.get("version", ""),
+        changeset=primary.get("changeset", ""),
+        user=primary.get("user", ""),
+        tags_old=_extract_tags(old_elem) if old_elem is not None else {},
+        tags_new=_extract_tags(new_elem) if new_elem is not None else {},
+    )
+
+
+def parse_adiff_actions(root: ET.Element) -> list[Action]:
+    """Parse an augmented diff XML tree into Action objects.
+
+    Handles all element types (node, way, relation) and action types
+    (create, modify, delete).
+    """
+    actions = []
+    for action_elem in root.findall("action"):
+        action_type = action_elem.get("type")
+        old = action_elem.find("old")
+        new = action_elem.find("new")
+
+        old_child = None
+        new_child = None
+
+        # Determine element type from whichever side exists
+        if new is not None:
+            for elem_type in ("node", "way", "relation"):
+                new_child = new.find(elem_type)
+                if new_child is not None:
+                    if old is not None:
+                        old_child = old.find(elem_type)
+                    break
+        elif old is not None:
+            for elem_type in ("node", "way", "relation"):
+                old_child = old.find(elem_type)
+                if old_child is not None:
+                    break
+
+        if new_child is None and old_child is None:
+            continue
+
+        elem_type = (new_child if new_child is not None else old_child).tag
+
+        if elem_type == "node":
+            actions.append(_extract_node_action(action_type, old_child, new_child))
+        elif elem_type == "way":
+            actions.append(_extract_way_action(action_type, old_child, new_child))
+        elif elem_type == "relation":
+            actions.append(_extract_relation_action(action_type, old_child, new_child))
+
+    return actions
 
 
 

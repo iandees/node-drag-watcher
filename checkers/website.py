@@ -92,6 +92,11 @@ def _try_https_upgrade(url: str) -> str:
         return url
 
 
+def _is_trivial_url_change(old: str, new: str) -> bool:
+    """Return True if the only difference is a trailing slash."""
+    return old.rstrip("/") == new.rstrip("/")
+
+
 class WebsiteChecker(BaseChecker):
     """Detect website/url tags that need cleanup."""
 
@@ -113,6 +118,12 @@ class WebsiteChecker(BaseChecker):
             final_url = _try_https_upgrade(normalized)
 
             if final_url == tag_value:
+                continue
+
+            # Skip trivial changes (e.g. trailing slash only) unless
+            # we're upgrading from http to https
+            is_https_upgrade = tag_value.startswith("http://") and final_url.startswith("https://")
+            if not is_https_upgrade and _is_trivial_url_change(tag_value, final_url):
                 continue
 
             issues.append(Issue(

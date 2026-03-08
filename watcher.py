@@ -111,6 +111,42 @@ def _extract_relation_action(action_type: str, old_elem, new_elem) -> Action:
     )
 
 
+def _parse_action_element(action_elem: ET.Element) -> Action | None:
+    """Parse a single <action> element into an Action object."""
+    action_type = action_elem.get("type")
+    old = action_elem.find("old")
+    new = action_elem.find("new")
+
+    old_child = None
+    new_child = None
+
+    if new is not None:
+        for elem_type in ("node", "way", "relation"):
+            new_child = new.find(elem_type)
+            if new_child is not None:
+                if old is not None:
+                    old_child = old.find(elem_type)
+                break
+    elif old is not None:
+        for elem_type in ("node", "way", "relation"):
+            old_child = old.find(elem_type)
+            if old_child is not None:
+                break
+
+    if new_child is None and old_child is None:
+        return None
+
+    elem_type = (new_child if new_child is not None else old_child).tag
+
+    if elem_type == "node":
+        return _extract_node_action(action_type, old_child, new_child)
+    elif elem_type == "way":
+        return _extract_way_action(action_type, old_child, new_child)
+    elif elem_type == "relation":
+        return _extract_relation_action(action_type, old_child, new_child)
+    return None
+
+
 def parse_adiff_actions(root: ET.Element) -> list[Action]:
     """Parse an augmented diff XML tree into Action objects.
 
@@ -119,40 +155,35 @@ def parse_adiff_actions(root: ET.Element) -> list[Action]:
     """
     actions = []
     for action_elem in root.findall("action"):
-        action_type = action_elem.get("type")
-        old = action_elem.find("old")
-        new = action_elem.find("new")
+        action = _parse_action_element(action_elem)
+        if action is not None:
+            actions.append(action)
+    return actions
 
-        old_child = None
-        new_child = None
 
-        # Determine element type from whichever side exists
-        if new is not None:
-            for elem_type in ("node", "way", "relation"):
-                new_child = new.find(elem_type)
-                if new_child is not None:
-                    if old is not None:
-                        old_child = old.find(elem_type)
-                    break
-        elif old is not None:
-            for elem_type in ("node", "way", "relation"):
-                old_child = old.find(elem_type)
-                if old_child is not None:
-                    break
+def iter_adiff_actions_from_file(path: str):
+    """Yield Action objects by streaming an adiff file (low memory).
 
-        if new_child is None and old_child is None:
+    Uses iterparse to process one <action> at a time without loading the
+    entire XML tree into memory.
+    """
+    root = None
+    for event, elem in ET.iterparse(path, events=("start", "end")):
+        if event == "start":
+            if root is None:
+                root = elem
             continue
 
-        elem_type = (new_child if new_child is not None else old_child).tag
+        if elem.tag != "action":
+            continue
 
-        if elem_type == "node":
-            actions.append(_extract_node_action(action_type, old_child, new_child))
-        elif elem_type == "way":
-            actions.append(_extract_way_action(action_type, old_child, new_child))
-        elif elem_type == "relation":
-            actions.append(_extract_relation_action(action_type, old_child, new_child))
+        action = _parse_action_element(elem)
+        if action is not None:
+            yield action
 
-    return actions
+        elem.clear()
+        if root is not None:
+            root.remove(elem)
 
 
 
@@ -207,9 +238,11 @@ def process_adiff(url: str, threshold_meters: float, bot_token: str | None = Non
     try:
         drags = detect_node_drags(path, threshold_meters=threshold_meters)
 
-        # Parse again for tag checkers (adiff files are small enough)
-        root = ET.parse(path).getroot()
-        actions = parse_adiff_actions(root)
+        # Stream-parse for tag checkers (low memory)
+        tag_issues: list[Issue] = []
+        for action in iter_adiff_actions_from_file(path):
+            for checker in _tag_checkers:
+                tag_issues.extend(checker.check(action))
     finally:
         os.unlink(path)
 
@@ -220,12 +253,6 @@ def process_adiff(url: str, threshold_meters: float, bot_token: str | None = Non
             drag["way_id"], drag["node_id"], drag["distance_meters"],
             drag["changeset"], drag["user"],
         )
-
-    # Run tag checkers
-    tag_issues: list[Issue] = []
-    for action in actions:
-        for checker in _tag_checkers:
-            tag_issues.extend(checker.check(action))
 
     for issue in tag_issues:
         log.info("Tag issue: %s %s — %s", issue.element_type, issue.element_id, issue.summary)

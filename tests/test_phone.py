@@ -100,6 +100,12 @@ class TestPhoneChecker:
         issues = self.checker.check(action)
         assert len(issues) == 2
 
+    def test_skips_trivial_dash_space_swap(self):
+        """Skip when the only change is swapping dashes for spaces."""
+        action = _make_action({"phone": "+1-647-345-4466"})
+        issues = self.checker.check(action)
+        assert issues == []
+
     def test_issue_fields(self):
         action = _make_action({"phone": "+12125551234"})
         issues = self.checker.check(action)

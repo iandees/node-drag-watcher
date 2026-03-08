@@ -121,6 +121,20 @@ class TestWebsiteChecker:
             issues = self.checker.check(action)
             assert len(issues) == 1
 
+    def test_skips_trailing_slash_only(self):
+        """Removing trailing slash alone is too minor."""
+        action = _make_action({"website": "https://www.qmpizza.com/"})
+        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u):
+            assert self.checker.check(action) == []
+
+    def test_keeps_http_to_https_upgrade(self):
+        """HTTP→HTTPS is significant even if it's a small text change."""
+        action = _make_action({"website": "http://example.com"})
+        with patch("checkers.website._try_https_upgrade", return_value="https://example.com"):
+            issues = self.checker.check(action)
+            assert len(issues) == 1
+            assert issues[0].tags_after["website"] == "https://example.com"
+
     def test_ignores_delete_actions(self):
         action = _make_action({"website": "example.com"}, action_type="delete")
         assert self.checker.check(action) == []

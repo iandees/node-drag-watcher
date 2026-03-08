@@ -93,14 +93,37 @@ def _format_phone(raw: str, country: str | None) -> str | None:
     return None
 
 
+def _is_trivial_phone_change(old: str, new: str) -> bool:
+    """Return True if the change is too minor to be worth a changeset.
+
+    Examples of trivial changes (skip):
+      +1-647-345-4466 → +1 647-345-4466  (swap one dash for space)
+
+    Examples of significant changes (keep):
+      +12125551234 → +1 212-555-1234  (adding all formatting)
+      2125551234 → +1 212-555-1234  (adding country code)
+    """
+    # Different digits/country code = always significant
+    strip_chars = str.maketrans("", "", " -.()+ ")
+    if old.translate(strip_chars) != new.translate(strip_chars):
+        return False
+
+    # Same digits — count how many separator characters differ
+    # Normalize all separators to a common char to find real differences
+    def _normalize_seps(s: str) -> str:
+        return s.replace("-", " ").replace(".", " ").replace("(", "").replace(")", " ")
+
+    return _normalize_seps(old) == _normalize_seps(new)
+
+
 def _format_phone_value(value: str, country: str | None) -> str | None:
     """Format a phone tag value, handling semicolon-separated numbers.
 
-    Returns formatted value or None if nothing changed.
+    Returns formatted value or None if nothing changed or change is trivial.
     """
     parts = [p.strip() for p in value.split(";")]
     formatted_parts = []
-    any_changed = False
+    any_significant = False
 
     for part in parts:
         if not part:
@@ -111,10 +134,10 @@ def _format_phone_value(value: str, country: str | None) -> str | None:
             formatted_parts.append(part)
         else:
             formatted_parts.append(formatted)
-            if formatted != part:
-                any_changed = True
+            if formatted != part and not _is_trivial_phone_change(part, formatted):
+                any_significant = True
 
-    if not any_changed:
+    if not any_significant:
         return None
 
     return ";".join(formatted_parts)

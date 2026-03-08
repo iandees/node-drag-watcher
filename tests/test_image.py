@@ -3,14 +3,14 @@ from unittest.mock import patch, MagicMock
 
 from PIL import Image
 
-from watcher import (
+from checkers.drag import (
     generate_drag_image,
-    upload_slack_image,
     _lon_to_tile_x,
     _lat_to_tile_y,
     _latlon_to_pixel,
     _choose_zoom,
 )
+from notifiers.slack import upload_slack_image
 
 
 def _make_drag(**overrides):
@@ -74,7 +74,7 @@ def test_generate_drag_image_produces_png():
     mock_resp.content = tile_png
     mock_resp.raise_for_status = MagicMock()
 
-    with patch("watcher.requests.get", return_value=mock_resp):
+    with patch("checkers.drag.requests.get", return_value=mock_resp):
         result = generate_drag_image(drags)
 
     assert result is not None
@@ -97,7 +97,7 @@ def test_generate_drag_image_multiple_ways():
     mock_resp.content = tile_png
     mock_resp.raise_for_status = MagicMock()
 
-    with patch("watcher.requests.get", return_value=mock_resp):
+    with patch("checkers.drag.requests.get", return_value=mock_resp):
         result = generate_drag_image(drags)
 
     assert result is not None
@@ -119,7 +119,7 @@ def test_generate_drag_image_tile_failure():
     """Image generation should still succeed even if tile fetches fail."""
     drags = [_make_drag()]
 
-    with patch("watcher.requests.get", side_effect=Exception("network error")):
+    with patch("checkers.drag.requests.get", side_effect=Exception("network error")):
         result = generate_drag_image(drags)
 
     # Should still return an image (with blank tiles)
@@ -142,8 +142,8 @@ def test_upload_slack_image():
     mock_post.return_value.raise_for_status = MagicMock()
     mock_post.return_value.json.return_value = {"ok": True}
 
-    with patch("watcher.requests.get", mock_get), \
-         patch("watcher.requests.post", mock_post):
+    with patch("notifiers.slack.requests.get", mock_get), \
+         patch("notifiers.slack.requests.post", mock_post):
         upload_slack_image("xoxb-test", "C123", b"fakepng", "test.png")
 
     # Step 1: getUploadURLExternal
@@ -172,8 +172,8 @@ def test_upload_slack_image_with_thread():
     mock_post.return_value.raise_for_status = MagicMock()
     mock_post.return_value.json.return_value = {"ok": True}
 
-    with patch("watcher.requests.get", mock_get), \
-         patch("watcher.requests.post", mock_post):
+    with patch("notifiers.slack.requests.get", mock_get), \
+         patch("notifiers.slack.requests.post", mock_post):
         upload_slack_image("xoxb-test", "C123", b"fakepng", "test.png", thread_ts="123.456")
 
     # completeUploadExternal should include thread_ts
@@ -183,7 +183,7 @@ def test_upload_slack_image_with_thread():
 
 def test_send_slack_summary_uploads_images_threaded():
     """Images are uploaded as threaded replies to the summary message."""
-    from watcher import send_slack_summary
+    from notifiers.slack import send_slack_summary
 
     drags = [_make_drag()]
 
@@ -191,9 +191,9 @@ def test_send_slack_summary_uploads_images_threaded():
     resp.json.return_value = {"ok": True, "ts": "111.222"}
     resp.raise_for_status = MagicMock()
 
-    with patch("watcher.requests.post", return_value=resp), \
-         patch("watcher.generate_drag_image", return_value=b"fakepng"), \
-         patch("watcher.upload_slack_image") as mock_upload:
+    with patch("notifiers.slack.requests.post", return_value=resp), \
+         patch("notifiers.slack.generate_drag_image", return_value=b"fakepng"), \
+         patch("notifiers.slack.upload_slack_image") as mock_upload:
         send_slack_summary("xoxb-test", "C123", drags)
 
         mock_upload.assert_called_once_with(

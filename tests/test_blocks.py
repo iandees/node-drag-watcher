@@ -1,5 +1,5 @@
 import json
-from watcher import build_drag_blocks
+from notifiers.slack import build_drag_blocks
 
 
 def _make_drag(**overrides):

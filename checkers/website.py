@@ -1,0 +1,130 @@
+"""Website URL cleanup checker.
+
+Detects website/url tags that need normalization:
+- Add scheme if missing
+- Lowercase domain
+- Strip tracking parameters (utm_*, fbclid, gclid, etc.)
+- Upgrade HTTP to HTTPS if site supports it
+"""
+
+import logging
+import re
+from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
+
+import requests
+
+from checkers import Action, Issue, BaseChecker
+
+log = logging.getLogger(__name__)
+
+WEBSITE_TAG_PATTERN = re.compile(
+    r'^(website|url|contact:website)(:.+)?$'
+)
+
+# Query params to strip
+TRACKING_PARAMS = {
+    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+    "fbclid", "gclid", "mc_cid", "mc_eid", "ref",
+}
+
+
+def _normalize_url(raw: str) -> str | None:
+    """Normalize a URL structurally (no network).
+
+    Returns normalized URL or None if not a valid website URL.
+    """
+    stripped = raw.strip()
+
+    # Skip non-website schemes
+    if stripped.startswith(("mailto:", "tel:", "ftp:")):
+        return None
+
+    # Add scheme if missing
+    if not stripped.startswith(("http://", "https://")):
+        stripped = "https://" + stripped
+
+    parsed = urlparse(stripped)
+
+    # Lowercase domain
+    netloc = parsed.netloc.lower()
+
+    # Strip tracking params
+    if parsed.query:
+        params = parse_qs(parsed.query, keep_blank_values=True)
+        filtered = {
+            k: v for k, v in params.items()
+            if k not in TRACKING_PARAMS and not k.startswith("utm_")
+        }
+        query = urlencode(filtered, doseq=True) if filtered else ""
+    else:
+        query = ""
+
+    # Strip trailing slash on bare domain
+    path = parsed.path
+    if path == "/":
+        path = ""
+
+    result = urlunparse((parsed.scheme, netloc, path, parsed.params, query, ""))
+    return result
+
+
+def _try_https_upgrade(url: str) -> str:
+    """Try upgrading HTTP to HTTPS. Returns the best URL."""
+    if not url.startswith("http://"):
+        return url
+
+    https_url = "https://" + url[7:]
+    try:
+        resp = requests.head(https_url, timeout=5, allow_redirects=True,
+                             headers={"User-Agent": "node-drag-watcher/0.1"})
+        if resp.status_code < 400:
+            # Check if redirected to same domain
+            final_parsed = urlparse(resp.url)
+            original_parsed = urlparse(https_url)
+            orig_domain = original_parsed.netloc.lower().lstrip("www.")
+            final_domain = final_parsed.netloc.lower().lstrip("www.")
+            if orig_domain == final_domain:
+                return resp.url
+            # Cross-domain redirect — keep original with HTTPS
+            return https_url
+        return url
+    except Exception:
+        return url
+
+
+class WebsiteChecker(BaseChecker):
+    """Detect website/url tags that need cleanup."""
+
+    def check(self, action: Action) -> list[Issue]:
+        if action.action_type == "delete":
+            return []
+
+        issues = []
+
+        for tag_key, tag_value in action.tags_new.items():
+            if not WEBSITE_TAG_PATTERN.match(tag_key):
+                continue
+
+            normalized = _normalize_url(tag_value)
+            if normalized is None:
+                continue
+
+            # Try HTTPS upgrade
+            final_url = _try_https_upgrade(normalized)
+
+            if final_url == tag_value:
+                continue
+
+            issues.append(Issue(
+                element_type=action.element_type,
+                element_id=action.element_id,
+                element_version=action.version,
+                changeset=action.changeset,
+                user=action.user,
+                check_name="website_cleanup",
+                summary=f"{tag_key}: {tag_value} → {final_url}",
+                tags_before={tag_key: tag_value},
+                tags_after={tag_key: final_url},
+            ))
+
+        return issues

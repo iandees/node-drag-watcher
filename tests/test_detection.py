@@ -2,7 +2,7 @@ import xml.etree.ElementTree as ET
 import math
 import pytest
 
-from watcher import detect_node_drags, haversine_distance
+from checkers.drag import detect_node_drags, haversine_distance
 
 # Minimal adiff XML: one way where exactly 1 of 4 nodes moved significantly
 # The node action has different changeset/user than the way (realistic scenario)

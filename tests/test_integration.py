@@ -11,9 +11,6 @@ import pytest
 import requests
 
 from revert import (
-    NodeMove,
-    NodeUndelete,
-    WayNodeSwap,
     create_changeset,
     close_changeset,
     fetch_node,
@@ -143,7 +140,7 @@ class TestRevertIntegration:
         # 3. Revert the drag
         result = revert_changeset(
             TOKEN, cs2, "Integration test: revert drag",
-            node_moves=[NodeMove(node_id, POS_A[0], POS_A[1], POS_B[0], POS_B[1])],
+            node_ids=[node_id], way_ids=[],
             api_base=DEV_API_BASE,
         )
         assert result.revert_changeset_id is not None
@@ -217,12 +214,14 @@ class TestRevertIntegration:
         assert not a2_visible
 
         # -- Revert the substitution --
+        # Now we just pass node_ids and way_ids; revert_changeset figures out
+        # what to do from the changeset download
         result = revert_changeset(
             TOKEN, cs_drag, "Integration test: revert substitution",
-            node_undeletes=[NodeUndelete(a2, a2_lat, a2_lon)],
-            way_node_swaps=[WayNodeSwap(way_a, old_node_ref=a2, new_node_ref=b2)],
+            node_ids=[], way_ids=[way_a],
             api_base=DEV_API_BASE,
         )
+        # a2 should be auto-discovered as deleted and undeleted
         assert a2 in result.nodes_undeleted
         assert way_a in result.ways_updated
 

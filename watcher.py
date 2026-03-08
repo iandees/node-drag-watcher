@@ -584,7 +584,7 @@ def _format_drag_text(drags: list[dict], changeset: str, user: str) -> str:
 
 
 def build_drag_blocks(drags: list[dict], changeset: str, user: str) -> tuple[str, list[dict]]:
-    """Build Block Kit blocks for a changeset alert with revert buttons.
+    """Build Block Kit blocks for a changeset alert with one revert button.
 
     Returns (text_fallback, blocks).
     """
@@ -594,61 +594,50 @@ def build_drag_blocks(drags: list[dict], changeset: str, user: str) -> tuple[str
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
     ]
 
-    # Group drags by node to collect all affected way IDs per node
-    by_node: dict[str, list[dict]] = {}
+    # Collect all affected node and way IDs across all drags in this changeset
+    node_ids: list[str] = []
+    way_ids_set: set[str] = set()
+    seen_nodes: set[str] = set()
     for drag in drags:
-        by_node.setdefault(drag["node_id"], []).append(drag)
+        if drag["node_id"] not in seen_nodes:
+            seen_nodes.add(drag["node_id"])
+            node_ids.append(drag["node_id"])
+        way_ids_set.add(drag["way_id"])
+        # Include ways from membership changes
+        for mc in drag.get("way_membership_changes", []):
+            way_ids_set.add(mc["way_id"])
 
-    for node_id, node_drags in by_node.items():
-        way_ids = [d["way_id"] for d in node_drags]
+    way_ids = sorted(way_ids_set)
 
-        # Collect way membership changes across all drags for this node,
-        # deduplicated by way_id
-        seen_way_ids: set[str] = set()
-        membership_changes: list[dict] = []
-        for d in node_drags:
-            for mc in d.get("way_membership_changes", []):
-                if mc["way_id"] not in seen_way_ids:
-                    seen_way_ids.add(mc["way_id"])
-                    membership_changes.append(mc)
+    value_dict = {
+        "node_ids": node_ids,
+        "way_ids": way_ids,
+        "changeset": changeset,
+    }
 
-        is_substitution = node_drags[0].get("is_substitution", False)
+    button_value = json.dumps(value_dict)
+    n_nodes = len(node_ids)
+    n_ways = len(way_ids)
 
-        value_dict = {
-            "node_id": node_id,
-            "old_lat": node_drags[0]["dragged_node_old"][0],
-            "old_lon": node_drags[0]["dragged_node_old"][1],
-            "new_lat": node_drags[0]["dragged_node_new"][0],
-            "new_lon": node_drags[0]["dragged_node_new"][1],
-            "changeset": node_drags[0]["changeset"],
-            "way_ids": way_ids,
-            "way_membership_changes": membership_changes,
-            "is_substitution": is_substitution,
-        }
-        if is_substitution:
-            value_dict["old_node_ref"] = node_drags[0].get("old_node_ref")
-
-        button_value = json.dumps(value_dict)
-
-        blocks.append({
-            "type": "actions",
-            "elements": [{
-                "type": "button",
-                "text": {"type": "plain_text", "text": f"Revert Node {node_id}"},
-                "style": "danger",
-                "action_id": "revert_node_drag",
-                "value": button_value,
-                "confirm": {
-                    "title": {"type": "plain_text", "text": "Confirm Revert"},
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"Revert node {node_id} to its previous position?",
-                    },
-                    "confirm": {"type": "plain_text", "text": "Revert"},
-                    "deny": {"type": "plain_text", "text": "Cancel"},
+    blocks.append({
+        "type": "actions",
+        "elements": [{
+            "type": "button",
+            "text": {"type": "plain_text", "text": "Revert"},
+            "style": "danger",
+            "action_id": "revert_node_drag",
+            "value": button_value,
+            "confirm": {
+                "title": {"type": "plain_text", "text": "Confirm Revert"},
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"Revert {n_nodes} node{'s' if n_nodes != 1 else ''} and {n_ways} way{'s' if n_ways != 1 else ''}?",
                 },
-            }],
-        })
+                "confirm": {"type": "plain_text", "text": "Revert"},
+                "deny": {"type": "plain_text", "text": "Cancel"},
+            },
+        }],
+    })
 
     return text, blocks
 
@@ -748,65 +737,6 @@ def send_slack_interactive(bot_token: str, channel_id: str, drags: list[dict]) -
         _post_reverter_link(bot_token, channel_id, cs_drags, changeset, ts)
 
 
-def _build_revert_instructions(value: dict) -> dict:
-    """Translate a button value dict into revert_changeset keyword arguments.
-
-    Classic drag (node kept its ID but moved):
-        → NodeMove
-    Substitution drag (node ref replaced by a different ref):
-        → WayNodeSwap per affected way (swap new_ref back to old_ref)
-    """
-    node_id = value["node_id"]
-    old_lat = value["old_lat"]
-    old_lon = value["old_lon"]
-    new_lat = value.get("new_lat")
-    new_lon = value.get("new_lon")
-    way_ids = value.get("way_ids", [])
-    is_substitution = value.get("is_substitution", False)
-
-    node_moves = []
-    way_node_swaps = []
-
-    if is_substitution:
-        # Substitution: old_node_ref was replaced by node_id in each way.
-        # Swap them back.
-        old_node_ref = value.get("old_node_ref")
-        if old_node_ref:
-            for way_id in way_ids:
-                way_node_swaps.append(
-                    revert_mod.WayNodeSwap(
-                        way_id=way_id,
-                        old_node_ref=old_node_ref,
-                        new_node_ref=node_id,
-                    )
-                )
-    else:
-        # Classic drag: move the node back
-        if new_lat is not None:
-            node_moves.append(
-                revert_mod.NodeMove(
-                    node_id=node_id,
-                    old_lat=old_lat, old_lon=old_lon,
-                    new_lat=new_lat, new_lon=new_lon,
-                )
-            )
-
-    # Generate WayNodeRemove for nodes added to other ways during the drag
-    way_node_removes = []
-    for mc in value.get("way_membership_changes", []):
-        if mc.get("change") == "added":
-            way_node_removes.append(
-                revert_mod.WayNodeRemove(way_id=mc["way_id"], node_ref=node_id)
-            )
-
-    return {
-        "node_moves": node_moves or None,
-        "node_undeletes": None,
-        "way_node_swaps": way_node_swaps or None,
-        "way_node_removes": way_node_removes or None,
-    }
-
-
 def handle_revert_action(ack: Callable, body: dict, client: object, osm_token: str,
                          api_base: str = revert_mod.DEFAULT_OSM_API_BASE) -> None:
     """Slack Bolt action handler for revert_node_drag buttons."""
@@ -814,7 +744,8 @@ def handle_revert_action(ack: Callable, body: dict, client: object, osm_token: s
 
     action = body["actions"][0]
     value = json.loads(action["value"])
-    node_id = value["node_id"]
+    node_ids = value["node_ids"]
+    way_ids = value["way_ids"]
     original_changeset = value["changeset"]
 
     user = body["user"]["username"]
@@ -822,20 +753,21 @@ def handle_revert_action(ack: Callable, body: dict, client: object, osm_token: s
     ts = body["message"]["ts"]
 
     comment = f"Revert accidental node drag from changeset {original_changeset}"
+    node_list = ", ".join(node_ids)
     changeset_comment = (
-        f"Hi! It looks like node {node_id} was accidentally "
-        f"moved in this changeset. This can happen when panning "
+        f"Hi! It looks like a node in this changeset was "
+        f"accidentally moved. This can happen when panning "
         f"the map. The node has been moved back to its "
         f"previous position."
     )
 
     try:
-        instructions = _build_revert_instructions(value)
         result = revert_mod.revert_changeset(
             osm_token, original_changeset, comment,
+            node_ids=node_ids,
+            way_ids=way_ids,
             changeset_comment=changeset_comment,
             api_base=api_base,
-            **instructions,
         )
         cs_id = result.revert_changeset_id
 
@@ -867,7 +799,7 @@ def handle_revert_action(ack: Callable, body: dict, client: object, osm_token: s
         _update_message_error(body, client, f"OSM auth failed: {e}")
 
     except Exception as e:
-        log.exception("Revert failed for node %s", node_id)
+        log.exception("Revert failed for changeset %s", original_changeset)
         _update_message_error(body, client, f"Revert failed: {e}")
 
 

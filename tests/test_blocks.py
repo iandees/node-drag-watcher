@@ -1,6 +1,5 @@
 import json
-from watcher import build_drag_blocks, _build_revert_instructions
-import revert as revert_mod
+from watcher import build_drag_blocks
 
 
 def _make_drag(**overrides):
@@ -27,7 +26,6 @@ def test_basic_structure():
     assert "999" in text
     assert "bob" in text
 
-    # Should have a section and an actions block
     types = [b["type"] for b in blocks]
     assert "section" in types
     assert "actions" in types
@@ -41,13 +39,15 @@ def test_button_value_contains_required_fields():
     button = actions_block["elements"][0]
     value = json.loads(button["value"])
 
-    assert value["node_id"] == "42"
-    assert value["old_lat"] == 51.0
-    assert value["old_lon"] == -1.0
-    assert value["new_lat"] == 51.1
-    assert value["new_lon"] == -1.1
+    assert value["node_ids"] == ["42"]
+    assert "111" in value["way_ids"]
     assert value["changeset"] == "999"
-    assert value["way_ids"] == ["111"]
+    # Old fields should NOT be present
+    assert "old_lat" not in value
+    assert "new_lat" not in value
+    assert "is_substitution" not in value
+    assert "old_node_ref" not in value
+    assert "way_membership_changes" not in value
 
 
 def test_button_has_confirm_dialog():
@@ -62,43 +62,38 @@ def test_button_has_confirm_dialog():
     assert button["action_id"] == "revert_node_drag"
 
 
-def test_substitution_node_uses_new_ref():
-    drags = [_make_drag(node_id="200", is_substitution=True, old_node_ref="100")]
-    _, blocks = build_drag_blocks(drags, "999", "bob")
-
-    actions_block = [b for b in blocks if b["type"] == "actions"][0]
-    button = actions_block["elements"][0]
-    value = json.loads(button["value"])
-
-    assert value["node_id"] == "200"
-    assert value["is_substitution"] is True
-    assert value["old_node_ref"] == "100"
-    assert "200" in button["text"]["text"]
-
-
-def test_one_button_per_unique_node():
+def test_one_button_per_changeset():
+    """Multiple drags for same changeset → one button."""
     drags = [
         _make_drag(way_id="111"),
-        _make_drag(way_id="222"),  # same node_id, different way
+        _make_drag(way_id="222"),
     ]
     _, blocks = build_drag_blocks(drags, "999", "bob")
 
     actions_blocks = [b for b in blocks if b["type"] == "actions"]
-    assert len(actions_blocks) == 1  # one button for one unique node
+    assert len(actions_blocks) == 1
 
 
-def test_multiple_nodes_get_multiple_buttons():
+def test_multiple_nodes_in_one_button():
+    """Multiple nodes in same changeset → one button with all node_ids."""
     drags = [
-        _make_drag(node_id="42"),
+        _make_drag(node_id="42", way_id="111"),
         _make_drag(node_id="43", way_id="222"),
     ]
     _, blocks = build_drag_blocks(drags, "999", "bob")
 
     actions_blocks = [b for b in blocks if b["type"] == "actions"]
-    assert len(actions_blocks) == 2
+    assert len(actions_blocks) == 1
+
+    button = actions_blocks[0]["elements"][0]
+    value = json.loads(button["value"])
+    assert value["node_ids"] == ["42", "43"]
+    assert "111" in value["way_ids"]
+    assert "222" in value["way_ids"]
 
 
-def test_button_value_includes_membership_changes():
+def test_button_value_includes_membership_change_ways():
+    """Way IDs from membership changes are included in way_ids."""
     drags = [_make_drag(way_membership_changes=[
         {"way_id": "555", "change": "added"},
     ])]
@@ -108,14 +103,12 @@ def test_button_value_includes_membership_changes():
     button = actions_block["elements"][0]
     value = json.loads(button["value"])
 
-    assert "way_membership_changes" in value
-    assert len(value["way_membership_changes"]) == 1
-    assert value["way_membership_changes"][0]["way_id"] == "555"
-    assert value["way_membership_changes"][0]["change"] == "added"
+    assert "555" in value["way_ids"]
+    assert "111" in value["way_ids"]
 
 
-def test_button_value_deduplicates_membership_changes():
-    """When multiple drags for same node have same membership change, deduplicate."""
+def test_button_value_deduplicates_way_ids():
+    """Way IDs are deduplicated across drags and membership changes."""
     drags = [
         _make_drag(way_id="111", way_membership_changes=[
             {"way_id": "555", "change": "added"},
@@ -130,66 +123,21 @@ def test_button_value_deduplicates_membership_changes():
     button = actions_block["elements"][0]
     value = json.loads(button["value"])
 
-    assert len(value["way_membership_changes"]) == 1
+    # 555 should appear only once
+    assert value["way_ids"].count("555") == 1
 
 
-# ==============================================================================
-# _build_revert_instructions tests
-# ==============================================================================
+def test_confirm_text_shows_counts():
+    """Confirm dialog shows correct node and way counts."""
+    drags = [
+        _make_drag(node_id="42", way_id="111"),
+        _make_drag(node_id="43", way_id="222"),
+    ]
+    _, blocks = build_drag_blocks(drags, "999", "bob")
 
-def test_classic_drag_produces_node_move():
-    value = {
-        "node_id": "42",
-        "old_lat": 51.0, "old_lon": -1.0,
-        "new_lat": 51.1, "new_lon": -1.1,
-        "changeset": "999",
-        "way_ids": ["111"],
-    }
-    instructions = _build_revert_instructions(value)
-    assert instructions["node_moves"] is not None
-    assert len(instructions["node_moves"]) == 1
-    nm = instructions["node_moves"][0]
-    assert nm.node_id == "42"
-    assert nm.old_lat == 51.0
-    assert nm.new_lat == 51.1
-    assert instructions["way_node_swaps"] is None
+    actions_block = [b for b in blocks if b["type"] == "actions"][0]
+    button = actions_block["elements"][0]
+    confirm_text = button["confirm"]["text"]["text"]
 
-
-def test_substitution_drag_produces_way_node_swaps():
-    value = {
-        "node_id": "200",
-        "old_lat": 10.0, "old_lon": -85.0,
-        "new_lat": 10.1, "new_lon": -85.1,
-        "changeset": "999",
-        "way_ids": ["111", "222"],
-        "is_substitution": True,
-        "old_node_ref": "100",
-    }
-    instructions = _build_revert_instructions(value)
-    assert instructions["node_moves"] is None
-    assert instructions["way_node_swaps"] is not None
-    assert len(instructions["way_node_swaps"]) == 2
-    ws = instructions["way_node_swaps"][0]
-    assert ws.way_id == "111"
-    assert ws.old_node_ref == "100"
-    assert ws.new_node_ref == "200"
-
-
-def test_membership_changes_produce_way_node_removes():
-    value = {
-        "node_id": "42",
-        "old_lat": 51.0, "old_lon": -1.0,
-        "new_lat": 51.1, "new_lon": -1.1,
-        "changeset": "999",
-        "way_ids": ["111"],
-        "way_membership_changes": [
-            {"way_id": "555", "change": "added"},
-            {"way_id": "666", "change": "removed"},
-        ],
-    }
-    instructions = _build_revert_instructions(value)
-    assert instructions["way_node_removes"] is not None
-    assert len(instructions["way_node_removes"]) == 1
-    wr = instructions["way_node_removes"][0]
-    assert wr.way_id == "555"
-    assert wr.node_ref == "42"
+    assert "2 nodes" in confirm_text
+    assert "2 ways" in confirm_text

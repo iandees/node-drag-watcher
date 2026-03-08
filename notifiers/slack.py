@@ -8,6 +8,8 @@ from collections.abc import Callable
 import requests
 
 import revert as revert_mod
+import tag_fix as tag_fix_mod
+from checkers import Issue
 from checkers.drag import generate_drag_image
 
 log = logging.getLogger(__name__)
@@ -334,12 +336,16 @@ def start_socket_mode(app_token: str, bot_token: str, osm_token: str) -> None:
     app = App(token=bot_token)
 
     @app.action("revert_node_drag")
-    def _handle(ack, body, client):
+    def _handle_revert(ack, body, client):
         handle_revert_action(ack, body, client, osm_token)
+
+    @app.action("fix_tags")
+    def _handle_fix(ack, body, client):
+        handle_tag_fix_action(ack, body, client, osm_token)
 
     handler = SocketModeHandler(app, app_token)
     handler.connect()
-    log.info("Socket Mode started for interactive revert buttons")
+    log.info("Socket Mode started for interactive buttons")
 
 
 def send_slack_summary(bot_token: str, channel_id: str, drags: list[dict], interactive: bool = False) -> None:
@@ -358,3 +364,152 @@ def send_slack_summary(bot_token: str, channel_id: str, drags: list[dict], inter
         ts = _post_slack_message(bot_token, channel_id, text)
         _upload_node_images(bot_token, channel_id, cs_drags, ts)
         _post_reverter_link(bot_token, channel_id, cs_drags, changeset, ts)
+
+
+def _format_tag_issue_text(issues: list[Issue], changeset: str, user: str) -> str:
+    """Format mrkdwn text for tag issue alerts."""
+    check_labels = {
+        "phone_format": ":telephone_receiver: Phone formatting",
+        "website_cleanup": ":globe_with_meridians: Website cleanup",
+    }
+    check_name = issues[0].check_name
+    label = check_labels.get(check_name, check_name)
+
+    lines = [
+        f"{label} needed in "
+        f"<https://osmcha.org/changesets/{changeset}|changeset {changeset}> "
+        f"by {user}",
+    ]
+
+    for issue in issues:
+        elem_link = f"<https://www.openstreetmap.org/{issue.element_type}/{issue.element_id}|{issue.element_type}/{issue.element_id}>"
+        for tag_key in issue.tags_before:
+            before = issue.tags_before[tag_key]
+            after = issue.tags_after.get(tag_key, before)
+            lines.append(f"• {elem_link}: `{tag_key}` {before} → {after}")
+
+    return "\n".join(lines)
+
+
+def build_tag_issue_blocks(issues: list[Issue], changeset: str, user: str) -> tuple[str, list[dict]]:
+    """Build Block Kit blocks for tag issue alerts."""
+    text = _format_tag_issue_text(issues, changeset, user)
+
+    blocks: list[dict] = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+    ]
+
+    value_dict = {
+        "check_name": issues[0].check_name,
+        "changeset": changeset,
+        "issues": [
+            {
+                "element_type": i.element_type,
+                "element_id": i.element_id,
+                "element_version": i.element_version,
+                "tags_before": i.tags_before,
+                "tags_after": i.tags_after,
+            }
+            for i in issues
+        ],
+    }
+
+    button_value = json.dumps(value_dict)
+    n_elements = len(issues)
+    check_name = issues[0].check_name
+    action_label = "Format" if check_name == "phone_format" else "Clean up"
+
+    blocks.append({
+        "type": "actions",
+        "elements": [{
+            "type": "button",
+            "text": {"type": "plain_text", "text": f"{action_label}"},
+            "style": "primary",
+            "action_id": "fix_tags",
+            "value": button_value,
+            "confirm": {
+                "title": {"type": "plain_text", "text": "Confirm Fix"},
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"Fix {n_elements} element{'s' if n_elements != 1 else ''}?",
+                },
+                "confirm": {"type": "plain_text", "text": "Fix"},
+                "deny": {"type": "plain_text", "text": "Cancel"},
+            },
+        }],
+    })
+
+    return text, blocks
+
+
+def send_tag_issue_summary(bot_token: str, channel_id: str, issues: list[Issue],
+                           interactive: bool = False) -> None:
+    """Post tag issue alerts to Slack, grouped by changeset and check type."""
+    # Group by (changeset, check_name)
+    groups: dict[tuple[str, str], list[Issue]] = {}
+    for issue in issues:
+        key = (issue.changeset, issue.check_name)
+        groups.setdefault(key, []).append(issue)
+
+    for (changeset, check_name), group_issues in groups.items():
+        user = group_issues[0].user
+        if interactive:
+            text, blocks = build_tag_issue_blocks(group_issues, changeset, user)
+            _post_slack_message(bot_token, channel_id, text, blocks)
+        else:
+            text = _format_tag_issue_text(group_issues, changeset, user)
+            _post_slack_message(bot_token, channel_id, text)
+
+
+def handle_tag_fix_action(ack: Callable, body: dict, client: object, osm_token: str,
+                          api_base: str = revert_mod.DEFAULT_OSM_API_BASE) -> None:
+    """Slack Bolt action handler for fix_tags buttons."""
+    ack()
+
+    action = body["actions"][0]
+    value = json.loads(action["value"])
+    check_name = value["check_name"]
+
+    user = body["user"]["username"]
+    channel = body["channel"]["id"]
+    ts = body["message"]["ts"]
+
+    # Reconstruct Issue objects
+    issues = [
+        Issue(
+            element_type=i["element_type"],
+            element_id=i["element_id"],
+            element_version=i["element_version"],
+            changeset=value["changeset"],
+            user="",
+            check_name=check_name,
+            summary="",
+            tags_before=i["tags_before"],
+            tags_after=i["tags_after"],
+        )
+        for i in value["issues"]
+    ]
+
+    try:
+        cs_id = tag_fix_mod.fix_tags(osm_token, issues, api_base=api_base)
+
+        original_blocks = body["message"].get("blocks", [])
+        new_blocks = [b for b in original_blocks if b.get("type") != "actions"]
+        new_blocks.append({
+            "type": "context",
+            "elements": [{
+                "type": "mrkdwn",
+                "text": (
+                    f":white_check_mark: Fixed by @{user} in "
+                    f"<https://www.openstreetmap.org/changeset/{cs_id}|changeset {cs_id}>"
+                ),
+            }],
+        })
+        client.chat_update(channel=channel, ts=ts, blocks=new_blocks, text="Fixed")
+
+    except tag_fix_mod.VersionConflictError as e:
+        _update_message_error(body, client, f"Version conflict: {e}")
+
+    except Exception as e:
+        log.exception("Tag fix failed")
+        _update_message_error(body, client, f"Fix failed: {e}")

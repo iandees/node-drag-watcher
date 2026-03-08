@@ -10,13 +10,16 @@ import xml.etree.ElementTree as ET
 
 import requests
 
-from checkers import Action
+from checkers import Action, Issue
 from checkers.drag import (
     detect_node_drags,
     filter_drags,
 )
+from checkers.phone import PhoneChecker
+from checkers.website import WebsiteChecker
 from notifiers.slack import (
     send_slack_summary,
+    send_tag_issue_summary,
     start_socket_mode,
 )
 
@@ -195,13 +198,21 @@ def write_state(state_file, seq):
         f.write(str(seq))
 
 
+_tag_checkers = [PhoneChecker(), WebsiteChecker()]
+
+
 def process_adiff(url: str, threshold_meters: float, bot_token: str | None = None, channel_id: str | None = None, interactive: bool = False) -> list[dict]:
-    """Fetch an adiff, detect drags, and optionally alert."""
+    """Fetch an adiff, detect drags and tag issues, and optionally alert."""
     path = fetch_adiff(url)
     try:
         drags = detect_node_drags(path, threshold_meters=threshold_meters)
+
+        # Parse again for tag checkers (adiff files are small enough)
+        root = ET.parse(path).getroot()
+        actions = parse_adiff_actions(root)
     finally:
         os.unlink(path)
+
     drags = filter_drags(drags)
     for drag in drags:
         log.info(
@@ -209,8 +220,22 @@ def process_adiff(url: str, threshold_meters: float, bot_token: str | None = Non
             drag["way_id"], drag["node_id"], drag["distance_meters"],
             drag["changeset"], drag["user"],
         )
-    if drags and bot_token and channel_id:
-        send_slack_summary(bot_token, channel_id, drags, interactive=interactive)
+
+    # Run tag checkers
+    tag_issues: list[Issue] = []
+    for action in actions:
+        for checker in _tag_checkers:
+            tag_issues.extend(checker.check(action))
+
+    for issue in tag_issues:
+        log.info("Tag issue: %s %s — %s", issue.element_type, issue.element_id, issue.summary)
+
+    if bot_token and channel_id:
+        if drags:
+            send_slack_summary(bot_token, channel_id, drags, interactive=interactive)
+        if tag_issues:
+            send_tag_issue_summary(bot_token, channel_id, tag_issues, interactive=interactive)
+
     return drags
 
 

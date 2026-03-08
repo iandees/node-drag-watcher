@@ -1,5 +1,6 @@
 import json
-from watcher import build_drag_blocks
+from watcher import build_drag_blocks, _build_revert_instructions
+import revert as revert_mod
 
 
 def _make_drag(**overrides):
@@ -62,7 +63,7 @@ def test_button_has_confirm_dialog():
 
 
 def test_substitution_node_uses_new_ref():
-    drags = [_make_drag(node_id="200", is_substitution=True)]
+    drags = [_make_drag(node_id="200", is_substitution=True, old_node_ref="100")]
     _, blocks = build_drag_blocks(drags, "999", "bob")
 
     actions_block = [b for b in blocks if b["type"] == "actions"][0]
@@ -70,6 +71,8 @@ def test_substitution_node_uses_new_ref():
     value = json.loads(button["value"])
 
     assert value["node_id"] == "200"
+    assert value["is_substitution"] is True
+    assert value["old_node_ref"] == "100"
     assert "200" in button["text"]["text"]
 
 
@@ -128,3 +131,65 @@ def test_button_value_deduplicates_membership_changes():
     value = json.loads(button["value"])
 
     assert len(value["way_membership_changes"]) == 1
+
+
+# ==============================================================================
+# _build_revert_instructions tests
+# ==============================================================================
+
+def test_classic_drag_produces_node_move():
+    value = {
+        "node_id": "42",
+        "old_lat": 51.0, "old_lon": -1.0,
+        "new_lat": 51.1, "new_lon": -1.1,
+        "changeset": "999",
+        "way_ids": ["111"],
+    }
+    instructions = _build_revert_instructions(value)
+    assert instructions["node_moves"] is not None
+    assert len(instructions["node_moves"]) == 1
+    nm = instructions["node_moves"][0]
+    assert nm.node_id == "42"
+    assert nm.old_lat == 51.0
+    assert nm.new_lat == 51.1
+    assert instructions["way_node_swaps"] is None
+
+
+def test_substitution_drag_produces_way_node_swaps():
+    value = {
+        "node_id": "200",
+        "old_lat": 10.0, "old_lon": -85.0,
+        "new_lat": 10.1, "new_lon": -85.1,
+        "changeset": "999",
+        "way_ids": ["111", "222"],
+        "is_substitution": True,
+        "old_node_ref": "100",
+    }
+    instructions = _build_revert_instructions(value)
+    assert instructions["node_moves"] is None
+    assert instructions["way_node_swaps"] is not None
+    assert len(instructions["way_node_swaps"]) == 2
+    ws = instructions["way_node_swaps"][0]
+    assert ws.way_id == "111"
+    assert ws.old_node_ref == "100"
+    assert ws.new_node_ref == "200"
+
+
+def test_membership_changes_produce_way_node_removes():
+    value = {
+        "node_id": "42",
+        "old_lat": 51.0, "old_lon": -1.0,
+        "new_lat": 51.1, "new_lon": -1.1,
+        "changeset": "999",
+        "way_ids": ["111"],
+        "way_membership_changes": [
+            {"way_id": "555", "change": "added"},
+            {"way_id": "666", "change": "removed"},
+        ],
+    }
+    instructions = _build_revert_instructions(value)
+    assert instructions["way_node_removes"] is not None
+    assert len(instructions["way_node_removes"]) == 1
+    wr = instructions["way_node_removes"][0]
+    assert wr.way_id == "555"
+    assert wr.node_ref == "42"

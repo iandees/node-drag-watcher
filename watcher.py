@@ -204,6 +204,7 @@ def _check_way_for_drag(old_way, new_way, node_info, threshold_meters):
             "way_id": new_way.get("id"),
             "way_name": way_name,
             "node_id": new_ref,
+            "old_node_ref": old_ref,
             "is_substitution": True,
             "distance_meters": round(distance, 1),
             "changeset": changeset,
@@ -611,7 +612,9 @@ def build_drag_blocks(drags: list[dict], changeset: str, user: str) -> tuple[str
                     seen_way_ids.add(mc["way_id"])
                     membership_changes.append(mc)
 
-        button_value = json.dumps({
+        is_substitution = node_drags[0].get("is_substitution", False)
+
+        value_dict = {
             "node_id": node_id,
             "old_lat": node_drags[0]["dragged_node_old"][0],
             "old_lon": node_drags[0]["dragged_node_old"][1],
@@ -620,7 +623,12 @@ def build_drag_blocks(drags: list[dict], changeset: str, user: str) -> tuple[str
             "changeset": node_drags[0]["changeset"],
             "way_ids": way_ids,
             "way_membership_changes": membership_changes,
-        })
+            "is_substitution": is_substitution,
+        }
+        if is_substitution:
+            value_dict["old_node_ref"] = node_drags[0].get("old_node_ref")
+
+        button_value = json.dumps(value_dict)
 
         blocks.append({
             "type": "actions",
@@ -743,10 +751,10 @@ def send_slack_interactive(bot_token: str, channel_id: str, drags: list[dict]) -
 def _build_revert_instructions(value: dict) -> dict:
     """Translate a button value dict into revert_changeset keyword arguments.
 
-    Classic drag (node_id is a plain ID):
+    Classic drag (node kept its ID but moved):
         → NodeMove
-    Substitution drag (node_id was old_ref, way_ids present, new_lat/new_lon differ):
-        → NodeUndelete + WayNodeSwap per way
+    Substitution drag (node ref replaced by a different ref):
+        → WayNodeSwap per affected way (swap new_ref back to old_ref)
     """
     node_id = value["node_id"]
     old_lat = value["old_lat"]
@@ -754,20 +762,34 @@ def _build_revert_instructions(value: dict) -> dict:
     new_lat = value.get("new_lat")
     new_lon = value.get("new_lon")
     way_ids = value.get("way_ids", [])
+    is_substitution = value.get("is_substitution", False)
 
-    # Detect substitution: if we have way_ids and the new position is from a
-    # different node (the button encodes old_ref as node_id), this is a
-    # substitution scenario.  However, we don't store new_node_ref in the
-    # button — substitution drags are identified by the original node_id
-    # format "old->new" but the button only has old_ref.  For now, classic
-    # drags use NodeMove.
-    node_moves = [
-        revert_mod.NodeMove(
-            node_id=node_id,
-            old_lat=old_lat, old_lon=old_lon,
-            new_lat=new_lat, new_lon=new_lon,
-        ),
-    ] if new_lat is not None else []
+    node_moves = []
+    way_node_swaps = []
+
+    if is_substitution:
+        # Substitution: old_node_ref was replaced by node_id in each way.
+        # Swap them back.
+        old_node_ref = value.get("old_node_ref")
+        if old_node_ref:
+            for way_id in way_ids:
+                way_node_swaps.append(
+                    revert_mod.WayNodeSwap(
+                        way_id=way_id,
+                        old_node_ref=old_node_ref,
+                        new_node_ref=node_id,
+                    )
+                )
+    else:
+        # Classic drag: move the node back
+        if new_lat is not None:
+            node_moves.append(
+                revert_mod.NodeMove(
+                    node_id=node_id,
+                    old_lat=old_lat, old_lon=old_lon,
+                    new_lat=new_lat, new_lon=new_lon,
+                )
+            )
 
     # Generate WayNodeRemove for nodes added to other ways during the drag
     way_node_removes = []
@@ -780,7 +802,7 @@ def _build_revert_instructions(value: dict) -> dict:
     return {
         "node_moves": node_moves or None,
         "node_undeletes": None,
-        "way_node_swaps": None,
+        "way_node_swaps": way_node_swaps or None,
         "way_node_removes": way_node_removes or None,
     }
 

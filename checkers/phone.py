@@ -66,20 +66,23 @@ def _coords_to_country(lat: float, lon: float) -> str | None:
 
 
 def _format_phone(raw: str, country: str | None) -> str | None:
-    """Try to parse and format a single phone number.
+    """Try to parse and format a phone number that needs a country code added.
 
-    Returns formatted number or None if unparseable.
+    Only returns a formatted number if the raw value can't be parsed without
+    a country hint — meaning it's missing the international prefix. If the
+    number already parses on its own (has a valid country code), we skip it
+    since consumers can reformat it themselves.
     """
+    # If it parses without a country hint, the country code is already there.
+    # Just reformatting (spacing/dashes) isn't worth a changeset.
     try:
         parsed = phonenumbers.parse(raw, None)
         if phonenumbers.is_valid_number(parsed):
-            return phonenumbers.format_number(
-                parsed, phonenumbers.PhoneNumberFormat.INTERNATIONAL
-            )
+            return None
     except phonenumbers.NumberParseException:
         pass
 
-    # Retry with country hint if available
+    # Needs a country hint to parse — this means it's missing the country code
     if country:
         try:
             parsed = phonenumbers.parse(raw, country)
@@ -93,51 +96,27 @@ def _format_phone(raw: str, country: str | None) -> str | None:
     return None
 
 
-def _is_trivial_phone_change(old: str, new: str) -> bool:
-    """Return True if the change is too minor to be worth a changeset.
-
-    Examples of trivial changes (skip):
-      +1-647-345-4466 → +1 647-345-4466  (swap one dash for space)
-
-    Examples of significant changes (keep):
-      +12125551234 → +1 212-555-1234  (adding all formatting)
-      2125551234 → +1 212-555-1234  (adding country code)
-    """
-    # Different digits/country code = always significant
-    strip_chars = str.maketrans("", "", " -.()+ ")
-    if old.translate(strip_chars) != new.translate(strip_chars):
-        return False
-
-    # Same digits — count how many separator characters differ
-    # Normalize all separators to a common char to find real differences
-    def _normalize_seps(s: str) -> str:
-        return s.replace("-", " ").replace(".", " ").replace("(", "").replace(")", " ")
-
-    return _normalize_seps(old) == _normalize_seps(new)
-
-
 def _format_phone_value(value: str, country: str | None) -> str | None:
     """Format a phone tag value, handling semicolon-separated numbers.
 
-    Returns formatted value or None if nothing changed or change is trivial.
+    Returns formatted value or None if nothing changed.
     """
     parts = [p.strip() for p in value.split(";")]
     formatted_parts = []
-    any_significant = False
+    any_changed = False
 
     for part in parts:
         if not part:
             continue
         formatted = _format_phone(part, country)
         if formatted is None:
-            # Can't parse this part, keep original
             formatted_parts.append(part)
         else:
             formatted_parts.append(formatted)
-            if formatted != part and not _is_trivial_phone_change(part, formatted):
-                any_significant = True
+            if formatted != part:
+                any_changed = True
 
-    if not any_significant:
+    if not any_changed:
         return None
 
     return ";".join(formatted_parts)

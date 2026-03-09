@@ -32,43 +32,47 @@ class TestPhoneChecker:
         action = _make_action({"phone": "+1 212-555-1234"})
         assert self.checker.check(action) == []
 
-    def test_formats_us_number(self):
+    def test_formats_local_number_with_coords(self):
+        """Local number (no country code) gets formatted with inferred country."""
         action = _make_action({"phone": "2125551234"}, coords_new=(40.7, -74.0))
         issues = self.checker.check(action)
         assert len(issues) == 1
         assert issues[0].check_name == "phone_format"
         assert issues[0].tags_after["phone"] == "+1 212-555-1234"
 
-    def test_formats_us_number_with_country_code(self):
+    def test_skips_number_with_country_code(self):
+        """Number already has country code — just reformatting, skip it."""
         action = _make_action({"phone": "+12125551234"})
-        issues = self.checker.check(action)
-        assert len(issues) == 1
-        assert issues[0].tags_after["phone"] == "+1 212-555-1234"
+        assert self.checker.check(action) == []
 
-    def test_formats_uk_number(self):
-        action = _make_action({"phone": "+442071234567"})
-        issues = self.checker.check(action)
-        assert len(issues) == 1
-        assert issues[0].tags_after["phone"] == "+44 20 7123 4567"
+    def test_skips_already_parseable_international(self):
+        """Numbers with valid country codes are skipped even if spacing differs."""
+        for number in ["+33670243409", "+7 985 1712209", "+39 3209229638"]:
+            action = _make_action({"phone": number})
+            assert self.checker.check(action) == [], f"Should skip {number}"
 
-    def test_handles_semicolon_separated(self):
-        action = _make_action({"phone": "+12125551234;+12125556789"})
+    def test_handles_semicolon_with_local_numbers(self):
+        action = _make_action({"phone": "2125551234;2125556789"}, coords_new=(40.7, -74.0))
         issues = self.checker.check(action)
         assert len(issues) == 1
         assert ";" in issues[0].tags_after["phone"]
+
+    def test_skips_semicolon_with_country_codes(self):
+        action = _make_action({"phone": "+12125551234;+12125556789"})
+        assert self.checker.check(action) == []
 
     def test_skips_unparseable(self):
         action = _make_action({"phone": "not a number"})
         assert self.checker.check(action) == []
 
     def test_checks_contact_phone(self):
-        action = _make_action({"contact:phone": "+12125551234"})
+        action = _make_action({"contact:phone": "2125551234"}, coords_new=(40.7, -74.0))
         issues = self.checker.check(action)
         assert len(issues) == 1
         assert "contact:phone" in issues[0].tags_after
 
     def test_checks_fax(self):
-        action = _make_action({"fax": "+12125551234"})
+        action = _make_action({"fax": "2125551234"}, coords_new=(40.7, -74.0))
         issues = self.checker.check(action)
         assert len(issues) == 1
         assert "fax" in issues[0].tags_after
@@ -81,38 +85,32 @@ class TestPhoneChecker:
         action = _make_action({"name": "Test Place", "highway": "residential"})
         assert self.checker.check(action) == []
 
-    def test_no_coords_tries_international_only(self):
-        """Without coords, can only parse numbers with + prefix."""
+    def test_no_coords_skips_local_number(self):
+        """Without coords, can't add country code to local number."""
         action = _make_action({"phone": "2125551234"}, coords_new=None)
         assert self.checker.check(action) == []
 
-    def test_no_coords_parses_international(self):
+    def test_no_coords_skips_international(self):
+        """Number with country code is skipped regardless of coords."""
         action = _make_action({"phone": "+12125551234"}, coords_new=None)
-        issues = self.checker.check(action)
-        assert len(issues) == 1
+        assert self.checker.check(action) == []
 
-    def test_multiple_phone_tags(self):
-        """Multiple phone tags on same element."""
+    def test_multiple_local_phone_tags(self):
+        """Multiple local phone tags on same element."""
         action = _make_action({
-            "phone": "+12125551234",
-            "fax": "+12125556789",
-        })
+            "phone": "2125551234",
+            "fax": "2125556789",
+        }, coords_new=(40.7, -74.0))
         issues = self.checker.check(action)
         assert len(issues) == 2
 
-    def test_skips_trivial_dash_space_swap(self):
-        """Skip when the only change is swapping dashes for spaces."""
-        action = _make_action({"phone": "+1-647-345-4466"})
-        issues = self.checker.check(action)
-        assert issues == []
-
     def test_issue_fields(self):
-        action = _make_action({"phone": "+12125551234"})
+        action = _make_action({"phone": "2125551234"}, coords_new=(40.7, -74.0))
         issues = self.checker.check(action)
         issue = issues[0]
         assert issue.element_type == "node"
         assert issue.element_id == "123"
         assert issue.changeset == "999"
         assert issue.user == "testuser"
-        assert issue.tags_before == {"phone": "+12125551234"}
+        assert issue.tags_before == {"phone": "2125551234"}
         assert issue.summary  # non-empty

@@ -1,6 +1,7 @@
 """Watch OSM augmented diffs for accidental node drags."""
 
 import argparse
+import io
 import logging
 import os
 import sys
@@ -241,6 +242,30 @@ def write_state(state_file, seq):
 
 _tag_checkers = [PhoneChecker(), WebsiteChecker()]
 
+# created_by prefixes and comment keywords that indicate a revert/fix changeset
+_REVERT_CREATED_BY = ("reverter_plugin", "node-drag-watcher", "osm-revert")
+_REVERT_COMMENT_KEYWORDS = ("revert", "reverting")
+
+
+def _is_revert_changeset(changeset_id: str) -> bool:
+    """Check if a changeset is a revert/fix by examining its metadata."""
+    resp = requests.get(
+        f"https://api.openstreetmap.org/api/0.6/changeset/{changeset_id}",
+        timeout=10,
+        headers={"User-Agent": "node-drag-watcher/0.1"},
+    )
+    resp.raise_for_status()
+    root = ET.parse(io.StringIO(resp.text)).getroot()
+    cs_elem = root.find("changeset")
+    if cs_elem is None:
+        return False
+    tags = {t.get("k"): t.get("v", "") for t in cs_elem.findall("tag")}
+    created_by = tags.get("created_by", "").lower()
+    comment = tags.get("comment", "").lower()
+    if any(created_by.startswith(prefix) for prefix in _REVERT_CREATED_BY):
+        return True
+    return any(kw in comment for kw in _REVERT_COMMENT_KEYWORDS)
+
 
 def process_adiff(url: str, threshold_meters: float, bot_token: str | None = None, channel_id: str | None = None, interactive: bool = False) -> list[dict]:
     """Fetch an adiff, detect drags and tag issues, and optionally alert."""
@@ -259,6 +284,27 @@ def process_adiff(url: str, threshold_meters: float, bot_token: str | None = Non
             tag_issues.extend(checker.check(action))
 
     drags = filter_drags(drags)
+
+    # Skip drags from revert/fix changesets (only check the few flagged ones)
+    revert_changesets: set[str] = set()
+    checked: set[str] = set()
+
+    for drag in drags:
+        cs = drag["changeset"]
+        if cs in checked:
+            continue
+
+        checked.add(cs)
+
+        try:
+            if _is_revert_changeset(cs):
+                revert_changesets.add(cs)
+                log.info("Skipping revert changeset %s", cs)
+        except Exception:
+            log.debug("Failed to check changeset %s metadata", cs, exc_info=True)
+
+    drags = [d for d in drags if d["changeset"] not in revert_changesets]
+
     for drag in drags:
         log.info(
             "Node drag: way %s node %s moved %.1fm (changeset %s by %s)",

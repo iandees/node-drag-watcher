@@ -207,13 +207,23 @@ def detect_drags_from_actions(actions: Iterable[Action], threshold_meters: float
     actions = list(actions)
 
     # First pass: collect changeset/user info from node modifications
+    # and count how many nodes were moved significantly per changeset
     node_info = {}
+    moved_nodes_by_changeset: dict[str, int] = {}
     for action in actions:
         if action.action_type == "modify" and action.element_type == "node":
             node_info[action.element_id] = {
                 "changeset": action.changeset,
                 "user": action.user,
             }
+            if action.coords_old and action.coords_new:
+                dist = haversine_distance(
+                    action.coords_old[0], action.coords_old[1],
+                    action.coords_new[0], action.coords_new[1],
+                )
+                if dist >= threshold_meters:
+                    cs = action.changeset
+                    moved_nodes_by_changeset[cs] = moved_nodes_by_changeset.get(cs, 0) + 1
 
     # Second pass: check ways for drags and track membership changes
     drags = []
@@ -235,6 +245,11 @@ def detect_drags_from_actions(actions: Iterable[Action], threshold_meters: float
         drags.extend(_check_way_action_for_drag(action, node_info, threshold_meters))
 
     _attach_way_membership_changes(drags, way_changes)
+
+    # Attach moved-node count so filter_drags can suppress bulk edits
+    for drag in drags:
+        drag["moved_node_count"] = moved_nodes_by_changeset.get(drag["changeset"], 0)
+
     return drags
 
 
@@ -265,6 +280,21 @@ def filter_drags(drags):
     For endpoint nodes (no angle available): only keep if the same node
     was also detected as a sharp-angle interior drag on another way.
     """
+    # Suppress bulk edits: if many nodes were moved in the same changeset,
+    # it's likely intentional (e.g. building corrections, area reshaping)
+    MAX_MOVED_NODES = 3
+    non_bulk = []
+    for drag in drags:
+        count = drag.get("moved_node_count", 1)
+        if count > MAX_MOVED_NODES:
+            log.debug(
+                "Suppressing drag on way %s: changeset %s moved %d nodes (bulk edit)",
+                drag["way_id"], drag["changeset"], count,
+            )
+        else:
+            non_bulk.append(drag)
+    drags = non_bulk
+
     # First pass: find nodes confirmed as drags by angle analysis
     confirmed_nodes = set()
     for drag in drags:

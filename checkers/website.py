@@ -24,7 +24,7 @@ WEBSITE_TAG_PATTERN = re.compile(
 # Query params to strip
 TRACKING_PARAMS = {
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
-    "fbclid", "gclid", "mc_cid", "mc_eid", "ref",
+    "fbclid", "gclid", "igsh", "mc_cid", "mc_eid", "ref",
 }
 
 

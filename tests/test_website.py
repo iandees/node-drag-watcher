@@ -45,6 +45,12 @@ class TestNormalizeUrl:
         assert "id=42" in result
         assert "utm_source" not in result
 
+    def test_fixes_doubled_scheme(self):
+        assert _normalize_url("http://Https://optic2000.com") == "https://optic2000.com"
+        assert _normalize_url("http://https://example.com") == "https://example.com"
+        assert _normalize_url("https://http://example.com") == "http://example.com"
+        assert _normalize_url("http://http://example.com") == "http://example.com"
+
     def test_fixes_truncated_scheme(self):
         assert _normalize_url("ttps://bankonbuffalo.bank") == "https://bankonbuffalo.bank"
         assert _normalize_url("ttp://example.com") == "https://example.com"

@@ -39,6 +39,13 @@ def _normalize_url(raw: str) -> str | None:
     if stripped.startswith(("mailto:", "tel:", "ftp:")):
         return None
 
+    # Fix doubled schemes (e.g. "http://Https://example.com" → "https://example.com")
+    doubled = re.match(r'^https?://(https?://)', stripped, re.IGNORECASE)
+    if doubled:
+        inner = stripped[doubled.start(1):]
+        # Lowercase the scheme portion (e.g. "Https://" → "https://")
+        stripped = inner[:inner.index("://") + 3].lower() + inner[inner.index("://") + 3:]
+
     # Fix truncated schemes (e.g. "ttps://", "ttp://", "htp://")
     truncated = re.match(r'^h?t?t?ps?://', stripped)
     if truncated and not stripped.startswith(("http://", "https://")):

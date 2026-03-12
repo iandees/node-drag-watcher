@@ -32,6 +32,10 @@ class TestNormalizeUrl:
         result = _normalize_url("https://example.com/page?utm_source=twitter&utm_medium=social")
         assert result == "https://example.com/page"
 
+    def test_strips_y_source(self):
+        result = _normalize_url("https://example.com/page?y_source=abc123")
+        assert result == "https://example.com/page"
+
     def test_strips_fbclid(self):
         result = _normalize_url("https://example.com/page?fbclid=abc123")
         assert result == "https://example.com/page"
@@ -153,6 +157,27 @@ class TestWebsiteChecker:
     def test_ignores_non_website_tags(self):
         action = _make_action({"name": "Test", "phone": "+1234"})
         assert self.checker.check(action) == []
+
+    def test_flags_google_copy_gmb(self):
+        action = _make_action({"website": "https://example.com?utm_source=gmb&utm_medium=organic"})
+        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u):
+            issues = self.checker.check(action)
+            assert len(issues) == 1
+            assert issues[0].extra.get("google_copy") is True
+
+    def test_flags_google_copy_yxt_goog(self):
+        action = _make_action({"website": "https://example.com?utm_source=yxt-goog&utm_medium=local"})
+        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u):
+            issues = self.checker.check(action)
+            assert len(issues) == 1
+            assert issues[0].extra.get("google_copy") is True
+
+    def test_no_google_copy_flag_for_normal_utm(self):
+        action = _make_action({"website": "https://example.com?utm_source=twitter"})
+        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u):
+            issues = self.checker.check(action)
+            assert len(issues) == 1
+            assert issues[0].extra.get("google_copy") is None
 
     def test_issue_fields(self):
         action = _make_action({"website": "example.com"})

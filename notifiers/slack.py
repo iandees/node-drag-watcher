@@ -391,6 +391,10 @@ def _format_tag_issue_text(issues: list[Issue], changeset: str, user: str) -> st
             after = issue.tags_after.get(tag_key, before)
             lines.append(f"• {elem_link}: `{tag_key}` {before} → {after}")
 
+    if any(i.extra.get("google_copy") for i in issues):
+        lines.append("")
+        lines.append(":warning: URL appears to have been copied from Google Maps")
+
     return "\n".join(lines)
 
 
@@ -402,8 +406,13 @@ def build_tag_issue_blocks(issues: list[Issue], changeset: str, user: str) -> tu
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
     ]
 
+    google_copy_elements = list(dict.fromkeys(
+        f"{i.element_type}/{i.element_id}"
+        for i in issues if i.extra.get("google_copy")
+    ))
     value_dict = {
         "changeset": changeset,
+        "google_copy_elements": google_copy_elements,
         "issues": [
             {
                 "element_type": i.element_type,
@@ -488,19 +497,42 @@ def handle_tag_fix_action(ack: Callable, body: dict, client: object, osm_token: 
         for i in value["issues"]
     ]
 
+    google_copy_elements = value.get("google_copy_elements", [])
+
     try:
         cs_id = tag_fix_mod.fix_tags(osm_token, issues, api_base=api_base)
 
+        # Comment on original changeset if URL was copied from Google
+        if google_copy_elements:
+            elements_str = ", ".join(google_copy_elements)
+            revert_mod.comment_on_changeset(
+                osm_token,
+                value["changeset"],
+                f"Hi! It looks like the website URL on {elements_str} may have been "
+                "copied from Google Maps (it contained Google tracking parameters). "
+                "Please be careful not to copy information from Google into "
+                "OpenStreetMap, as Google's data is copyrighted.",
+                api_base=api_base,
+            )
+
         original_blocks = body["message"].get("blocks", [])
         new_blocks = [b for b in original_blocks if b.get("type") != "actions"]
+
+        status_parts = [
+            f":white_check_mark: Fixed by @{user} in "
+            f"<https://www.openstreetmap.org/changeset/{cs_id}|changeset {cs_id}>"
+        ]
+        if google_copy_elements:
+            status_parts.append(
+                f":speech_balloon: Commented on "
+                f"<https://www.openstreetmap.org/changeset/{value['changeset']}|changeset {value['changeset']}>"
+            )
+
         new_blocks.append({
             "type": "context",
             "elements": [{
                 "type": "mrkdwn",
-                "text": (
-                    f":white_check_mark: Fixed by @{user} in "
-                    f"<https://www.openstreetmap.org/changeset/{cs_id}|changeset {cs_id}>"
-                ),
+                "text": "\n".join(status_parts),
             }],
         })
         client.chat_update(channel=channel, ts=ts, blocks=new_blocks, text="Fixed")

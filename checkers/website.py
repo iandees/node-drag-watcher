@@ -25,7 +25,11 @@ WEBSITE_TAG_PATTERN = re.compile(
 TRACKING_PARAMS = {
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
     "fbclid", "gclid", "igsh", "mc_cid", "mc_eid", "ref",
+    "y_source",
 }
+
+# utm_source values that indicate URL was copied from Google
+GOOGLE_UTM_SOURCES = {"gmb", "google", "google_maps", "google_my_business", "yxt-goog"}
 
 
 def _normalize_url(raw: str) -> str | None:
@@ -122,6 +126,15 @@ class WebsiteChecker(BaseChecker):
             if not WEBSITE_TAG_PATTERN.match(tag_key):
                 continue
 
+            # Check for Google-copied URL before normalization strips params
+            extra = {}
+            parsed_raw = urlparse(tag_value)
+            if parsed_raw.query:
+                raw_params = parse_qs(parsed_raw.query)
+                utm_sources = {v.lower() for vals in raw_params.get("utm_source", []) for v in vals.split(",")}
+                if utm_sources & GOOGLE_UTM_SOURCES:
+                    extra["google_copy"] = True
+
             normalized = _normalize_url(tag_value)
             if normalized is None:
                 continue
@@ -148,6 +161,7 @@ class WebsiteChecker(BaseChecker):
                 summary=f"{tag_key}: {tag_value} → {final_url}",
                 tags_before={tag_key: tag_value},
                 tags_after={tag_key: final_url},
+                extra=extra,
             ))
 
         return issues

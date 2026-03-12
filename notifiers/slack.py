@@ -386,8 +386,7 @@ def _format_tag_issue_text(issues: list[Issue], changeset: str, user: str) -> st
 
     for issue in issues:
         elem_link = f"<https://www.openstreetmap.org/{issue.element_type}/{issue.element_id}|{issue.element_type}/{issue.element_id}>"
-        for tag_key in issue.tags_before:
-            before = issue.tags_before[tag_key]
+        for tag_key, before in issue.tags_before.items():
             after = issue.tags_after.get(tag_key, before)
             lines.append(f"• {elem_link} `{tag_key}`: `{before}` → `{after}`")
 

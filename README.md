@@ -6,10 +6,19 @@ A "node drag" is when a mapper accidentally clicks a node and drags it while try
 
 ## Detection
 
-Two patterns are detected:
+### Node drags
+
+Two drag patterns are detected:
 
 1. **Classic drag** — A node keeps its ID but its coordinates move significantly while neighboring nodes on the same way don't move.
 2. **Node substitution** — A node on a way is replaced by a different node far away (happens when the editor merges two nodes after a drag).
+
+### Tag cleanup
+
+Checkers run on every element in the diff stream and flag tags that need fixing:
+
+- **Website cleanup** — Adds missing scheme, lowercases domain, strips tracking parameters (utm_*, fbclid, gclid, y_source, etc.), fixes doubled/truncated schemes, upgrades HTTP to HTTPS when possible. URLs copied from Google Maps (detected via `utm_source=gmb` and similar) trigger a changeset comment reminding the mapper not to copy from Google.
+- **Phone formatting** — Flags phone numbers missing a country code.
 
 ## Usage
 

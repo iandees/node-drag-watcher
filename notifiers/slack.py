@@ -389,7 +389,7 @@ def _format_tag_issue_text(issues: list[Issue], changeset: str, user: str) -> st
         for tag_key in issue.tags_before:
             before = issue.tags_before[tag_key]
             after = issue.tags_after.get(tag_key, before)
-            lines.append(f"• {elem_link}: `{tag_key}` {before} → {after}")
+            lines.append(f"• {elem_link} `{tag_key}`: `{before}` → `{after}`")
 
     if any(i.extra.get("google_copy") for i in issues):
         lines.append("")

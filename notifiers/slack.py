@@ -213,7 +213,12 @@ def _post_slack_message(
     thread_ts: str | None = None,
 ) -> str | None:
     """Post a message via chat.postMessage. Returns the message ts or None."""
-    payload: dict = {"channel": channel_id, "text": text}
+    payload: dict = {
+        "channel": channel_id,
+        "text": text,
+        "unfurl_links": False,
+        "unfurl_media": False,
+    }
     if blocks:
         payload["blocks"] = blocks
     if thread_ts:

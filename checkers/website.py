@@ -25,7 +25,7 @@ WEBSITE_TAG_PATTERN = re.compile(
 TRACKING_PARAMS = {
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
     "fbclid", "gclid", "igsh", "mc_cid", "mc_eid", "ref",
-    "y_source",
+    "y_source", "srsltid",
 }
 
 # utm_source values that indicate URL was copied from Google

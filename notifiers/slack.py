@@ -188,11 +188,23 @@ def _post_reverter_link(
     query_parts = [f"n{nid}" for nid in sorted(node_ids)] + [f"w{wid}" for wid in sorted(way_ids)]
     query_filter = ",".join(query_parts)
 
+    node_links = ", ".join(
+        f"https://www.openstreetmap.org/node/{nid}" for nid in sorted(node_ids)
+    )
+    node_word = "node" if len(node_ids) == 1 else "nodes"
+    was_were = "was" if len(node_ids) == 1 else "were"
     discussion = (
-        "Hi! It looks like a node in this changeset was "
-        "accidentally moved. This can happen when panning "
-        "the map. The node has been moved back to its "
-        "previous position."
+        f"Hello! I noticed that {node_word} {node_links} {was_were} moved "
+        f"a long distance in this changeset. This is a common mistake "
+        f"that happens when you click on a point and drag to move the map. "
+        f"The point moves with your mouse instead of the map.\n\n"
+        f"I moved things back to where they were before, so no harm done!\n\n"
+        f"To avoid this in the future:\n"
+        f"- Try to click on an empty part of the map when you want to "
+        f"move around\n"
+        f"- If you see a point move by mistake, press Ctrl+Z (or Cmd+Z "
+        f"on Mac) to undo it\n\n"
+        f"Happy mapping!"
     )
 
     params = urllib.parse.urlencode({
@@ -268,11 +280,23 @@ def handle_revert_action(ack: Callable, body: dict, client: object, osm_token: s
     ts = body["message"]["ts"]
 
     comment = f"Revert accidental node drag from changeset {original_changeset}"
+    node_links = ", ".join(
+        f"https://www.openstreetmap.org/node/{nid}" for nid in sorted(node_ids)
+    )
+    node_word = "node" if len(node_ids) == 1 else "nodes"
+    was_were = "was" if len(node_ids) == 1 else "were"
     changeset_comment = (
-        "Hi! It looks like a node in this changeset was "
-        "accidentally moved. This can happen when panning "
-        "the map. The node has been moved back to its "
-        "previous position."
+        f"Hello! I noticed that {node_word} {node_links} {was_were} moved "
+        f"a long distance in this changeset. This is a common mistake "
+        f"that happens when you click on a point and drag to move the map. "
+        f"The point moves with your mouse instead of the map.\n\n"
+        f"I moved things back to where they were before, so no harm done!\n\n"
+        f"To avoid this in the future:\n"
+        f"- Try to click on an empty part of the map when you want to "
+        f"move around\n"
+        f"- If you see a point move by mistake, press Ctrl+Z (or Cmd+Z "
+        f"on Mac) to undo it\n\n"
+        f"Happy mapping!"
     )
 
     try:

@@ -126,6 +126,10 @@ class WebsiteChecker(BaseChecker):
             if not WEBSITE_TAG_PATTERN.match(tag_key):
                 continue
 
+            # Skip tags that weren't changed in this edit
+            if action.tags_old.get(tag_key) == tag_value:
+                continue
+
             # Check for Google-copied URL before normalization strips params
             extra = {}
             parsed_raw = urlparse(tag_value)

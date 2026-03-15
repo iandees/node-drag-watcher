@@ -136,6 +136,10 @@ class PhoneChecker(BaseChecker):
             if not PHONE_TAG_PATTERN.match(tag_key):
                 continue
 
+            # Skip tags that weren't changed in this edit
+            if action.tags_old.get(tag_key) == tag_value:
+                continue
+
             formatted = _format_phone_value(tag_value, country)
             if formatted is None:
                 continue

@@ -73,8 +73,8 @@ def test_multiple_changesets():
     ]
     with patch("notifiers.slack.requests.post", return_value=_mock_post_ok()) as mock_post:
         send_slack_summary("xoxb-test", "C123", drags)
-        # 2 summaries + 2 reverter links = 4 calls
-        assert mock_post.call_count == 4
+        # 2 summaries = 2 calls
+        assert mock_post.call_count == 2
 
 
 def test_substitution_node_links_to_new():
@@ -116,40 +116,23 @@ def test_interactive_delegates_to_send_slack_interactive():
         mock_interactive.assert_called_once_with("xoxb-test", "C123", drags)
 
 
-def test_non_interactive_posts_summary_and_reverter():
-    """Non-interactive mode posts summary then reverter link as thread."""
+def test_non_interactive_posts_summary():
+    """Non-interactive mode posts summary message."""
     drags = [_make_drag()]
     with patch("notifiers.slack.requests.post", return_value=_mock_post_ok()) as mock_post:
         send_slack_summary("xoxb-test", "C123", drags)
-        # First call: summary, second call: reverter link
-        assert mock_post.call_count == 2
+        assert mock_post.call_count == 1
         assert "chat.postMessage" in mock_post.call_args_list[0][0][0]
-        assert "chat.postMessage" in mock_post.call_args_list[1][0][0]
-        # Reverter link should be threaded
-        assert mock_post.call_args_list[1][1]["json"]["thread_ts"] == "111.222"
 
 
-def test_reverter_link_contains_query_params():
-    """Reverter link includes changesets, query-filter, comment, discussion."""
-    drags = [_make_drag()]
-    with patch("notifiers.slack.requests.post", return_value=_mock_post_ok()) as mock_post:
-        send_slack_summary("xoxb-test", "C123", drags)
-        reverter_text = mock_post.call_args_list[1][1]["json"]["text"]
-        assert "revert.monicz.dev" in reverter_text
-        assert "changesets=999" in reverter_text
-        assert "n42" in reverter_text
-        assert "w111" in reverter_text
-
-
-def test_send_slack_interactive_posts_blocks_and_reverter():
-    """send_slack_interactive posts blocks then reverter link."""
+def test_send_slack_interactive_posts_blocks():
+    """send_slack_interactive posts blocks with actions."""
     drags = [_make_drag()]
 
     with patch("notifiers.slack.requests.post", return_value=_mock_post_ok()) as mock_post:
         with patch("notifiers.slack.generate_drag_image", return_value=None):
             send_slack_interactive("xoxb-test", "C123", drags)
 
-    # First call: summary with blocks, second: reverter link
     first_call = mock_post.call_args_list[0]
     assert "chat.postMessage" in first_call[0][0]
     payload = first_call[1]["json"]

@@ -169,7 +169,6 @@ def _upload_node_images(
             log.debug("Failed to upload drag image for node %s", node_id, exc_info=True)
 
 
-
 def _post_slack_message(
     bot_token: str, channel_id: str, text: str, blocks: list[dict] | None = None,
     thread_ts: str | None = None,
@@ -211,7 +210,6 @@ def send_slack_interactive(bot_token: str, channel_id: str, drags: list[dict]) -
         text, blocks = build_drag_blocks(cs_drags, changeset, user)
         ts = _post_slack_message(bot_token, channel_id, text, blocks)
         _upload_node_images(bot_token, channel_id, cs_drags, ts)
-
 
 
 def handle_revert_action(ack: Callable, body: dict, client: object, osm_token: str,
@@ -342,7 +340,6 @@ def send_slack_summary(bot_token: str, channel_id: str, drags: list[dict], inter
         text = _format_drag_text(cs_drags, changeset, user)
         ts = _post_slack_message(bot_token, channel_id, text)
         _upload_node_images(bot_token, channel_id, cs_drags, ts)
-
 
 
 def _format_tag_issue_text(issues: list[Issue], changeset: str, user: str) -> str:

@@ -228,34 +228,41 @@ def handle_revert_action(ack: Callable, body: dict, client: object, osm_token: s
     ts = body["message"]["ts"]
 
     comment = f"Revert accidental node drag from changeset {original_changeset}"
-    node_links = ", ".join(
-        f"https://www.openstreetmap.org/node/{nid}" for nid in sorted(node_ids)
-    )
-    node_word = "node" if len(node_ids) == 1 else "nodes"
-    was_were = "was" if len(node_ids) == 1 else "were"
-    changeset_comment = (
-        f"Hello! I noticed that {node_word} {node_links} {was_were} moved "
-        f"a long distance in this changeset. This is a common mistake "
-        f"that happens when you click on a point and drag to move the map. "
-        f"The point moves with your mouse instead of the map.\n\n"
-        f"I moved things back to where they were before, so no harm done!\n\n"
-        f"To avoid this in the future:\n"
-        f"- Try to click on an empty part of the map when you want to "
-        f"move around\n"
-        f"- If you see a point move by mistake, press Ctrl+Z (or Cmd+Z "
-        f"on Mac) to undo it\n\n"
-        f"Happy mapping!"
-    )
 
     try:
         result = revert_mod.revert_changeset(
             osm_token, original_changeset, comment,
             node_ids=node_ids,
             way_ids=way_ids,
-            changeset_comment=changeset_comment,
             api_base=api_base,
         )
         cs_id = result.revert_changeset_id
+
+        # Comment on the original changeset with the actually-reverted node IDs
+        reverted_nodes = result.nodes_moved + result.nodes_undeleted
+        if reverted_nodes:
+            node_links = ", ".join(
+                f"https://www.openstreetmap.org/node/{nid}"
+                for nid in sorted(reverted_nodes)
+            )
+            node_word = "node" if len(reverted_nodes) == 1 else "nodes"
+            was_were = "was" if len(reverted_nodes) == 1 else "were"
+            changeset_comment = (
+                f"Hello! I noticed that {node_word} {node_links} {was_were} moved "
+                f"a long distance in this changeset. This is a common mistake "
+                f"that happens when you click on a point and drag to move the map. "
+                f"The point moves with your mouse instead of the map.\n\n"
+                f"I moved things back to where they were before, so no harm done!\n\n"
+                f"To avoid this in the future:\n"
+                f"- Try to click on an empty part of the map when you want to "
+                f"move around\n"
+                f"- If you see a point move by mistake, press Ctrl+Z (or Cmd+Z "
+                f"on Mac) to undo it\n\n"
+                f"Happy mapping!"
+            )
+            revert_mod.comment_on_changeset(
+                osm_token, original_changeset, changeset_comment, api_base=api_base,
+            )
 
         # Update the message: remove buttons, add confirmation
         original_blocks = body["message"].get("blocks", [])

@@ -1,5 +1,8 @@
+import json
 from unittest.mock import patch, MagicMock
-from notifiers.slack import send_slack_summary, send_slack_interactive
+
+from notifiers.slack import send_slack_summary, send_slack_interactive, handle_revert_action
+from revert import RevertResult
 
 
 def _mock_post_ok():
@@ -139,3 +142,54 @@ def test_send_slack_interactive_posts_blocks():
     assert payload["channel"] == "C123"
     assert "blocks" in payload
     assert any(b["type"] == "actions" for b in payload["blocks"])
+
+
+def _make_revert_body(node_ids, way_ids, changeset):
+    """Build a minimal Slack action body for handle_revert_action."""
+    return {
+        "actions": [{
+            "value": json.dumps({
+                "node_ids": node_ids,
+                "way_ids": way_ids,
+                "changeset": changeset,
+            }),
+        }],
+        "user": {"username": "testuser"},
+        "channel": {"id": "C123"},
+        "message": {"ts": "111.222", "blocks": []},
+    }
+
+
+def test_revert_comment_uses_actually_reverted_nodes():
+    """Changeset comment should only mention nodes that were actually reverted,
+    not all node IDs from the drag detection."""
+    # Button has 3 node IDs, but only node 42 was actually moved
+    body = _make_revert_body(
+        node_ids=["42", "99", "100"],
+        way_ids=["111"],
+        changeset="999",
+    )
+
+    result = RevertResult(
+        revert_changeset_id="5555",
+        nodes_moved=["42"],
+        nodes_undeleted=[],
+        ways_updated=["111"],
+    )
+
+    mock_ack = MagicMock()
+    mock_client = MagicMock()
+
+    with patch("notifiers.slack.revert_mod.revert_changeset", return_value=result):
+        with patch("notifiers.slack.revert_mod.comment_on_changeset") as mock_comment:
+            handle_revert_action(mock_ack, body, mock_client, "fake-token")
+
+            mock_comment.assert_called_once()
+            comment_text = mock_comment.call_args[0][1]
+            assert comment_text == "999"  # changeset_id
+            comment_body = mock_comment.call_args[0][2]
+            assert "node/42" in comment_body
+            assert "node/99" not in comment_body
+            assert "node/100" not in comment_body
+            # Should use singular "node" since only one was reverted
+            assert "node https://" in comment_body

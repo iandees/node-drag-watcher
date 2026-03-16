@@ -2,7 +2,6 @@
 
 import json
 import logging
-import urllib.parse
 from collections.abc import Callable
 
 import requests
@@ -170,56 +169,6 @@ def _upload_node_images(
             log.debug("Failed to upload drag image for node %s", node_id, exc_info=True)
 
 
-def _post_reverter_link(
-    bot_token: str, channel_id: str, drags: list[dict], changeset: str,
-    thread_ts: str | None = None,
-) -> None:
-    """Post a link to the OSM reverter as a threaded reply."""
-    if not thread_ts:
-        return
-
-    # Collect affected node and way IDs
-    node_ids: set[str] = set()
-    way_ids: set[str] = set()
-    for drag in drags:
-        node_ids.add(drag["node_id"])
-        way_ids.add(drag["way_id"])
-
-    query_parts = [f"n{nid}" for nid in sorted(node_ids)] + [f"w{wid}" for wid in sorted(way_ids)]
-    query_filter = ",".join(query_parts)
-
-    node_links = ", ".join(
-        f"https://www.openstreetmap.org/node/{nid}" for nid in sorted(node_ids)
-    )
-    node_word = "node" if len(node_ids) == 1 else "nodes"
-    was_were = "was" if len(node_ids) == 1 else "were"
-    discussion = (
-        f"Hello! I noticed that {node_word} {node_links} {was_were} moved "
-        f"a long distance in this changeset. This is a common mistake "
-        f"that happens when you click on a point and drag to move the map. "
-        f"The point moves with your mouse instead of the map.\n\n"
-        f"I moved things back to where they were before, so no harm done!\n\n"
-        f"To avoid this in the future:\n"
-        f"- Try to click on an empty part of the map when you want to "
-        f"move around\n"
-        f"- If you see a point move by mistake, press Ctrl+Z (or Cmd+Z "
-        f"on Mac) to undo it\n\n"
-        f"Happy mapping!"
-    )
-
-    params = urllib.parse.urlencode({
-        "changesets": changeset,
-        "query-filter": query_filter,
-        "comment": f"Revert accidental node drag from changeset {changeset}",
-        "discussion": discussion,
-    })
-
-    reverter_url = f"https://revert.monicz.dev/?{params}"
-    text = f"<{reverter_url}|:leftwards_arrow_with_hook: Open in Reverter>"
-
-    _post_slack_message(bot_token, channel_id, text, thread_ts=thread_ts)
-
-
 def _post_slack_message(
     bot_token: str, channel_id: str, text: str, blocks: list[dict] | None = None,
     thread_ts: str | None = None,
@@ -261,7 +210,6 @@ def send_slack_interactive(bot_token: str, channel_id: str, drags: list[dict]) -
         text, blocks = build_drag_blocks(cs_drags, changeset, user)
         ts = _post_slack_message(bot_token, channel_id, text, blocks)
         _upload_node_images(bot_token, channel_id, cs_drags, ts)
-        _post_reverter_link(bot_token, channel_id, cs_drags, changeset, ts)
 
 
 def handle_revert_action(ack: Callable, body: dict, client: object, osm_token: str,
@@ -392,7 +340,6 @@ def send_slack_summary(bot_token: str, channel_id: str, drags: list[dict], inter
         text = _format_drag_text(cs_drags, changeset, user)
         ts = _post_slack_message(bot_token, channel_id, text)
         _upload_node_images(bot_token, channel_id, cs_drags, ts)
-        _post_reverter_link(bot_token, channel_id, cs_drags, changeset, ts)
 
 
 def _format_tag_issue_text(issues: list[Issue], changeset: str, user: str) -> str:

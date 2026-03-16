@@ -415,6 +415,8 @@ def revert_changeset(
 
     # -- Comment on original changeset -----------------------------------------
     if changeset_comment:
-        comment_on_changeset(osm_token, changeset_id, changeset_comment, api_base=api_base)
+        # Allow {revert_changeset_id} placeholder in the comment template
+        final_comment = changeset_comment.format(revert_changeset_id=cs_id)
+        comment_on_changeset(osm_token, changeset_id, final_comment, api_base=api_base)
 
     return result

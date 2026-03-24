@@ -60,6 +60,24 @@ class TestNormalizeUrl:
         assert _normalize_url("ttp://example.com") == "https://example.com"
         assert _normalize_url("htp://example.com") == "https://example.com"
 
+    def test_fixes_capitalized_scheme(self):
+        assert _normalize_url("Http://www.heyhorst.de") == "http://www.heyhorst.de"
+        assert _normalize_url("HTTP://example.com") == "http://example.com"
+        assert _normalize_url("Https://example.com") == "https://example.com"
+
+    def test_fixes_bare_scheme_separator(self):
+        """URLs starting with :// or // should get https:// prefix."""
+        assert _normalize_url("://www.theatrecreanova.be") == "https://www.theatrecreanova.be"
+        assert _normalize_url("//sites.google.com/view/cooper-bar/cafe") == "https://sites.google.com/view/cooper-bar/cafe"
+
+    def test_strips_gclid_and_gad_params(self):
+        url = "https://www.example.com/page?gclid=abc&gad_source=1&gad_campaignid=123&gclsrc=aw.ds"
+        assert _normalize_url(url) == "https://www.example.com/page"
+
+    def test_strips_campaignid_and_otppartnerid(self):
+        url = "https://www.example.com/page?otppartnerid=9308&campaignid=pw_123"
+        assert _normalize_url(url) == "https://www.example.com/page"
+
     def test_strips_trailing_slash_bare_domain(self):
         assert _normalize_url("https://example.com/") == "https://example.com"
 

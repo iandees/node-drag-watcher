@@ -24,8 +24,10 @@ WEBSITE_TAG_PATTERN = re.compile(
 # Query params to strip
 TRACKING_PARAMS = {
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
-    "fbclid", "gclid", "igsh", "mc_cid", "mc_eid", "ref",
+    "fbclid", "gclid", "gclsrc", "gad_source", "gad_campaignid",
+    "igsh", "mc_cid", "mc_eid", "ref",
     "y_source", "srsltid",
+    "otppartnerid", "campaignid",
 }
 
 # utm_source values that indicate URL was copied from Google
@@ -50,10 +52,17 @@ def _normalize_url(raw: str) -> str | None:
         # Lowercase the scheme portion (e.g. "Https://" → "https://")
         stripped = inner[:inner.index("://") + 3].lower() + inner[inner.index("://") + 3:]
 
-    # Fix truncated schemes (e.g. "ttps://", "ttp://", "htp://")
-    truncated = re.match(r'^h?t?t?ps?://', stripped)
+    # Fix truncated schemes (e.g. "ttps://", "ttp://", "htp://", "Http://")
+    truncated = re.match(r'^h?t?t?ps?://', stripped, re.IGNORECASE)
     if truncated and not stripped.startswith(("http://", "https://")):
-        stripped = "https://" + stripped[truncated.end():]
+        rest = stripped[truncated.end():]
+        scheme_text = stripped[:truncated.end()].lower()
+        stripped = ("http://" if scheme_text.startswith("http://") else "https://") + rest
+
+    # Strip leading :// or // (protocol-relative or malformed prefix)
+    leading = re.match(r'^:?/+', stripped)
+    if leading:
+        stripped = stripped[leading.end():]
 
     # Add scheme if missing
     if not stripped.startswith(("http://", "https://")):

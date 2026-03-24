@@ -227,7 +227,7 @@ def handle_revert_action(ack: Callable, body: dict, client: object, osm_token: s
     channel = body["channel"]["id"]
     ts = body["message"]["ts"]
 
-    comment = f"Revert accidental node drag from changeset {original_changeset}"
+    comment = f"Revert accidental node drag from https://www.openstreetmap.org/changeset/{original_changeset}"
 
     try:
         result = revert_mod.revert_changeset(

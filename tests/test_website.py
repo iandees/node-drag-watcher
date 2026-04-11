@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 from checkers import Action, Issue
-from checkers.website import WebsiteChecker, _normalize_url, _try_https_upgrade, _try_expand_shortener
+from checkers.website import WebsiteChecker, _normalize_url, _is_trivial_url_change, _try_https_upgrade, _try_expand_shortener
 
 
 def _make_action(tags_new, tags_old=None, action_type="create", **kwargs):
@@ -172,6 +172,32 @@ class TestNormalizeUrl:
 
     def test_ignores_tel(self):
         assert _normalize_url("tel:+1234567890") is None
+
+    def test_preserves_fragment(self):
+        assert _normalize_url("https://online.fliphtml5.com/odpet/xrkb/#p=1") == "https://online.fliphtml5.com/odpet/xrkb/#p=1"
+
+
+class TestIsTrivialUrlChange:
+    def test_trailing_slash_only(self):
+        assert _is_trivial_url_change("https://example.com/", "https://example.com") is True
+
+    def test_slash_before_query_params(self):
+        assert _is_trivial_url_change(
+            "https://oudgeervliet.nl/?page_id=212",
+            "https://oudgeervliet.nl?page_id=212",
+        ) is True
+
+    def test_real_path_difference_is_not_trivial(self):
+        assert _is_trivial_url_change(
+            "https://example.com/old",
+            "https://example.com/new",
+        ) is False
+
+    def test_query_param_difference_is_not_trivial(self):
+        assert _is_trivial_url_change(
+            "https://example.com/?a=1",
+            "https://example.com/?b=2",
+        ) is False
 
 
 class TestTryHttpsUpgrade:

@@ -230,8 +230,19 @@ def _try_expand_shortener(url: str) -> str:
 
 
 def _is_trivial_url_change(old: str, new: str) -> bool:
-    """Return True if the only difference is a trailing slash."""
-    return old.rstrip("/") == new.rstrip("/")
+    """Return True if the only difference is a trailing slash (including before query params)."""
+    if old.rstrip("/") == new.rstrip("/"):
+        return True
+    # Also catch /?query → ?query (slash before query string)
+    o = urlparse(old)
+    n = urlparse(new)
+    return (
+        o.scheme == n.scheme
+        and o.netloc == n.netloc
+        and o.path.rstrip("/") == n.path.rstrip("/")
+        and o.query == n.query
+        and o.fragment == n.fragment
+    )
 
 
 class WebsiteChecker(BaseChecker):

@@ -336,24 +336,26 @@ def run_polling(threshold_meters: float, state_file: str, bot_token: str, channe
         loop_start = time.monotonic()
         try:
             latest = get_latest_sequence()
-            next_seq = seq + 1
-            if next_seq > latest:
+            if seq >= latest:
                 log.debug("No new diffs (at %d)", seq)
             else:
-                url = f"{ADIFF_BASE}/replication/minute/{next_seq}.adiff"
-                log.info("Processing sequence %d", next_seq)
-                try:
-                    process_adiff(url, threshold_meters, bot_token, channel_id, interactive)
-                except requests.HTTPError as e:
-                    if e.response is not None and e.response.status_code == 404:
-                        log.debug("Sequence %d not yet available, will retry", next_seq)
+                for next_seq in range(seq + 1, latest + 1):
+                    url = f"{ADIFF_BASE}/replication/minute/{next_seq}.adiff"
+                    log.info("Processing sequence %d", next_seq)
+                    try:
+                        process_adiff(url, threshold_meters, bot_token, channel_id, interactive)
+                    except requests.HTTPError as e:
+                        if e.response is not None and e.response.status_code == 404:
+                            log.debug("Sequence %d not yet available, will retry", next_seq)
+                            break
+                        else:
+                            log.warning("Failed to fetch sequence %d: %s", next_seq, e)
+                    except Exception:
+                        log.exception("Failed to process sequence %d, will retry", next_seq)
+                        break
                     else:
-                        log.warning("Failed to fetch sequence %d: %s", next_seq, e)
-                except Exception:
-                    log.exception("Failed to process sequence %d, will retry", next_seq)
-                else:
-                    write_state(state_file, next_seq)
-                    seq = next_seq
+                        write_state(state_file, next_seq)
+                        seq = next_seq
         except Exception:
             log.exception("Error in polling loop")
 

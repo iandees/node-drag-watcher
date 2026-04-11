@@ -49,6 +49,11 @@ class TestNormalizeUrl:
         assert "id=42" in result
         assert "utm_source" not in result
 
+    def test_strips_junk_before_url(self):
+        """Stray text before a valid embedded URL."""
+        assert _normalize_url("h https://erea-nelson-mandela-lille.59.ac-lille.fr/") == "https://erea-nelson-mandela-lille.59.ac-lille.fr"
+        assert _normalize_url("x http://example.com/path") == "http://example.com/path"
+
     def test_fixes_doubled_scheme(self):
         assert _normalize_url("http://Https://optic2000.com") == "https://optic2000.com"
         assert _normalize_url("http://https://example.com") == "https://example.com"
@@ -59,6 +64,50 @@ class TestNormalizeUrl:
         assert _normalize_url("ttps://bankonbuffalo.bank") == "https://bankonbuffalo.bank"
         assert _normalize_url("ttp://example.com") == "https://example.com"
         assert _normalize_url("htp://example.com") == "https://example.com"
+        assert _normalize_url("htps://example.com") == "https://example.com"
+
+    def test_fixes_single_slash_scheme(self):
+        assert _normalize_url("https:/inatbar.rs") == "https://inatbar.rs"
+        assert _normalize_url("http:/example.com") == "http://example.com"
+        assert _normalize_url("HTTPS:/example.com/path") == "https://example.com/path"
+
+    def test_fixes_missing_slashes(self):
+        """Scheme with colon but no slashes."""
+        assert _normalize_url("https:example.com") == "https://example.com"
+        assert _normalize_url("http:example.com") == "http://example.com"
+
+    def test_fixes_backslashes(self):
+        """Backslashes instead of forward slashes."""
+        assert _normalize_url("https:\\\\example.com") == "https://example.com"
+        assert _normalize_url("http:\\example.com") == "http://example.com"
+
+    def test_fixes_semicolon_scheme(self):
+        """Semicolon instead of colon."""
+        assert _normalize_url("https;//example.com") == "https://example.com"
+        assert _normalize_url("http;//example.com") == "http://example.com"
+
+    def test_fixes_extra_slashes(self):
+        """Triple slash after scheme."""
+        assert _normalize_url("https:///example.com") == "https://example.com"
+        assert _normalize_url("http:///example.com") == "http://example.com"
+
+    def test_fixes_space_after_scheme(self):
+        """Space between scheme separator and domain."""
+        assert _normalize_url("https:// example.com") == "https://example.com"
+        assert _normalize_url("http:// example.com") == "http://example.com"
+
+    def test_fixes_doubled_leading_letter(self):
+        """Extra h at the start."""
+        assert _normalize_url("hhttps://example.com") == "https://example.com"
+        assert _normalize_url("hhttp://example.com") == "http://example.com"
+
+    def test_fixes_extra_s(self):
+        """httpss:// typo."""
+        assert _normalize_url("httpss://example.com") == "https://example.com"
+
+    def test_fixes_missing_colon_with_slashes(self):
+        """Scheme slashes but no colon."""
+        assert _normalize_url("https///example.com") == "https://example.com"
 
     def test_fixes_capitalized_scheme(self):
         assert _normalize_url("Http://www.heyhorst.de") == "http://www.heyhorst.de"

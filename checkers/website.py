@@ -45,19 +45,31 @@ def _normalize_url(raw: str) -> str | None:
     if stripped.startswith(("mailto:", "tel:", "ftp:")):
         return None
 
-    # Fix doubled schemes (e.g. "http://Https://example.com" → "https://example.com")
-    doubled = re.match(r'^https?://(https?://)', stripped, re.IGNORECASE)
-    if doubled:
-        inner = stripped[doubled.start(1):]
-        # Lowercase the scheme portion (e.g. "Https://" → "https://")
-        stripped = inner[:inner.index("://") + 3].lower() + inner[inner.index("://") + 3:]
+    # Strip junk text before an embedded valid URL (e.g. "h https://example.com")
+    embedded = re.search(r'https?://', stripped, re.IGNORECASE)
+    if embedded and embedded.start() > 0:
+        stripped = stripped[embedded.start():]
 
-    # Fix truncated schemes (e.g. "ttps://", "ttp://", "htp://", "Http://")
-    truncated = re.match(r'^h?t?t?ps?://', stripped, re.IGNORECASE)
-    if truncated and not stripped.startswith(("http://", "https://")):
-        rest = stripped[truncated.end():]
-        scheme_text = stripped[:truncated.end()].lower()
-        stripped = ("http://" if scheme_text.startswith("http://") else "https://") + rest
+    # Fix malformed schemes: doubled, truncated, wrong separators, extra chars, etc.
+    # Match any prefix that looks like a mangled http(s) scheme and extract the rest.
+    scheme_fix = re.match(
+        r'^((?:h*t+p+s*[;:]?[/\\]*){1,2}'  # one or two scheme-like runs (h optional for truncated)
+        r'(?:[;:][/\\]*|[/\\]+))'           # separator: colon/semicolon + slashes, or just slashes
+        r'[\s]*',                            # optional whitespace after separator
+        stripped, re.IGNORECASE,
+    )
+    if scheme_fix:
+        rest = stripped[scheme_fix.end():]
+        prefix_lower = scheme_fix.group(1).lower()
+        # Determine http vs https from the *last* scheme-like word in the prefix
+        # (handles doubled schemes like "http://https://" where inner scheme wins)
+        # Truncated words (missing letters) default to https:// since the typo
+        # likely lost letters rather than intentionally typing http://
+        scheme_words = re.findall(r'h*t+p+s*', prefix_lower)
+        last_word = scheme_words[-1] if scheme_words else ""
+        is_full_http = last_word in ("http", "hhttp")
+        scheme = "http://" if is_full_http else "https://"
+        stripped = scheme + rest
 
     # Strip leading :// or // (protocol-relative or malformed prefix)
     leading = re.match(r'^:?/+', stripped)

@@ -333,29 +333,32 @@ def run_polling(threshold_meters: float, state_file: str, bot_token: str, channe
         write_state(state_file, seq)
 
     while True:
+        loop_start = time.monotonic()
         try:
             latest = get_latest_sequence()
-            if latest <= seq:
+            next_seq = seq + 1
+            if next_seq > latest:
                 log.debug("No new diffs (at %d)", seq)
-                time.sleep(60)
-                continue
-
-            for s in range(seq + 1, latest + 1):
-                url = f"{ADIFF_BASE}/replication/minute/{s}.adiff"
-                log.info("Processing sequence %d", s)
+            else:
+                url = f"{ADIFF_BASE}/replication/minute/{next_seq}.adiff"
+                log.info("Processing sequence %d", next_seq)
                 try:
                     process_adiff(url, threshold_meters, bot_token, channel_id, interactive)
                 except requests.HTTPError as e:
                     if e.response is not None and e.response.status_code == 404:
-                        log.debug("Sequence %d not yet available, will retry", s)
-                        break
-                    log.warning("Failed to fetch sequence %d: %s", s, e)
-                write_state(state_file, s)
-                seq = s
+                        log.debug("Sequence %d not yet available, will retry", next_seq)
+                    else:
+                        log.warning("Failed to fetch sequence %d: %s", next_seq, e)
+                except Exception:
+                    log.exception("Failed to process sequence %d, will retry", next_seq)
+                else:
+                    write_state(state_file, next_seq)
+                    seq = next_seq
         except Exception:
             log.exception("Error in polling loop")
 
-        time.sleep(60)
+        elapsed = time.monotonic() - loop_start
+        time.sleep(max(0, 60 - elapsed))
 
 
 def main():

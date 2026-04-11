@@ -44,6 +44,36 @@ class TestNormalizeUrl:
         result = _normalize_url("https://example.com/page?gclid=abc123")
         assert result == "https://example.com/page"
 
+    def test_unwraps_google_redirect(self):
+        result = _normalize_url(
+            "https://www.google.com/url?sa=t&source=web&rct=j&url=https://locations.raisingcanes.com/il/chicago/3700-north-clark-street"
+        )
+        assert result == "https://locations.raisingcanes.com/il/chicago/3700-north-clark-street"
+
+    def test_unwraps_google_country_redirect(self):
+        result = _normalize_url(
+            "https://www.google.co.uk/url?sa=t&url=https://example.com/page"
+        )
+        assert result == "https://example.com/page"
+
+    def test_unwraps_facebook_redirect(self):
+        result = _normalize_url(
+            "https://l.facebook.com/l.php?u=https://example.com/shop&h=abc123"
+        )
+        assert result == "https://example.com/shop"
+
+    def test_unwraps_vk_redirect(self):
+        result = _normalize_url(
+            "https://away.vk.com/away.php?to=https://example.com"
+        )
+        assert result == "https://example.com"
+
+    def test_unwraps_youtube_redirect(self):
+        result = _normalize_url(
+            "https://www.youtube.com/redirect?q=https://example.com&event=video_description"
+        )
+        assert result == "https://example.com"
+
     def test_preserves_non_tracking_params(self):
         result = _normalize_url("https://example.com/page?id=42&utm_source=twitter")
         assert "id=42" in result

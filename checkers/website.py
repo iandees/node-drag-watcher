@@ -21,6 +21,17 @@ WEBSITE_TAG_PATTERN = re.compile(
     r'^(website|url|contact:website)(:.+)?$'
 )
 
+# Redirect/tracking wrapper URL patterns.
+# Each entry is (domain regex, query param holding the real URL).
+REDIRECT_UNWRAPPERS = [
+    (re.compile(r'^https?://(?:www\.)?google\.\w+(?:\.\w+)?/url\b', re.IGNORECASE), "url"),
+    (re.compile(r'^https?://l\.facebook\.com/l\.php\b', re.IGNORECASE), "u"),
+    (re.compile(r'^https?://(?:out|away)\.vk\.com/away\.php\b', re.IGNORECASE), "to"),
+    (re.compile(r'^https?://slack-redir\.net/link\b', re.IGNORECASE), "url"),
+    (re.compile(r'^https?://(?:www\.)?tripadvisor\.\w+(?:\.\w+)?/ExternalLinkInterstitial\b', re.IGNORECASE), "url"),
+    (re.compile(r'^https?://(?:www\.)?youtube\.com/redirect\b', re.IGNORECASE), "q"),
+]
+
 # Query params to strip
 TRACKING_PARAMS = {
     # Google Ads / Analytics
@@ -88,6 +99,14 @@ def _normalize_url(raw: str) -> str | None:
     # Skip non-website schemes
     if stripped.startswith(("mailto:", "tel:", "ftp:")):
         return None
+
+    # Unwrap redirect/tracking wrappers (e.g. Google, Facebook)
+    for pattern, param_key in REDIRECT_UNWRAPPERS:
+        if pattern.match(stripped):
+            wrapper_params = parse_qs(urlparse(stripped).query)
+            if param_key in wrapper_params:
+                stripped = wrapper_params[param_key][0]
+            break
 
     # Strip junk text before an embedded valid URL (e.g. "h https://example.com")
     embedded = re.search(r'https?://', stripped, re.IGNORECASE)

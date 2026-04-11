@@ -185,7 +185,7 @@ def _normalize_url(raw: str) -> str | None:
     if path == "/":
         path = ""
 
-    result = urlunparse((parsed.scheme, netloc, path, parsed.params, query, ""))
+    result = urlunparse((parsed.scheme, netloc, path, parsed.params, query, parsed.fragment))
     return result
 
 

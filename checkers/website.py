@@ -32,6 +32,27 @@ REDIRECT_UNWRAPPERS = [
     (re.compile(r'^https?://(?:www\.)?youtube\.com/redirect\b', re.IGNORECASE), "q"),
 ]
 
+# Known URL shortener domains. URLs on these domains are expanded via
+# HEAD request to get the real destination.
+URL_SHORTENER_DOMAINS = {
+    "bit.ly",
+    "tinyurl.com",
+    "t.co",
+    "goo.gl",
+    "ow.ly",
+    "is.gd",
+    "buff.ly",
+    "rb.gy",
+    "shorturl.at",
+    "cutt.ly",
+    "t.ly",
+    "lnkd.in",
+    "youtu.be",
+    "amzn.to",
+    "fb.me",
+    "tiny.cc",
+}
+
 # Query params to strip
 TRACKING_PARAMS = {
     # Google Ads / Analytics
@@ -192,6 +213,22 @@ def _try_https_upgrade(url: str) -> str:
         return url
 
 
+def _try_expand_shortener(url: str) -> str:
+    """If the URL is on a known shortener domain, follow redirects to get the real URL."""
+    parsed = urlparse(url)
+    domain = parsed.netloc.lower().lstrip("www.")
+    if domain not in URL_SHORTENER_DOMAINS:
+        return url
+    try:
+        resp = requests.head(url, timeout=5, allow_redirects=True,
+                             headers={"User-Agent": "node-drag-watcher/0.1"})
+        if resp.status_code < 400 and resp.url != url:
+            return resp.url
+    except Exception:
+        pass
+    return url
+
+
 def _is_trivial_url_change(old: str, new: str) -> bool:
     """Return True if the only difference is a trailing slash."""
     return old.rstrip("/") == new.rstrip("/")
@@ -226,6 +263,13 @@ class WebsiteChecker(BaseChecker):
             normalized = _normalize_url(tag_value)
             if normalized is None:
                 continue
+
+            # Expand URL shorteners (network call)
+            expanded = _try_expand_shortener(normalized)
+            if expanded != normalized:
+                # Re-normalize the expanded URL (strip tracking params, etc.)
+                expanded = _normalize_url(expanded) or expanded
+                normalized = expanded
 
             # Try HTTPS upgrade
             final_url = _try_https_upgrade(normalized)

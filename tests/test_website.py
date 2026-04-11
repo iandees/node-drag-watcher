@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 from checkers import Action, Issue
-from checkers.website import WebsiteChecker, _normalize_url, _try_https_upgrade
+from checkers.website import WebsiteChecker, _normalize_url, _try_https_upgrade, _try_expand_shortener
 
 
 def _make_action(tags_new, tags_old=None, action_type="create", **kwargs):
@@ -197,52 +197,82 @@ class TestTryHttpsUpgrade:
             assert result == "https://www.example.com/"
 
 
+class TestTryExpandShortener:
+    def test_expands_known_shortener(self):
+        mock_resp = MagicMock(status_code=200, url="https://example.com/real-page")
+        with patch("checkers.website.requests.head", return_value=mock_resp):
+            result = _try_expand_shortener("https://bit.ly/abc123")
+            assert result == "https://example.com/real-page"
+
+    def test_ignores_non_shortener(self):
+        result = _try_expand_shortener("https://example.com/page")
+        assert result == "https://example.com/page"
+
+    def test_returns_original_on_error(self):
+        with patch("checkers.website.requests.head", side_effect=Exception("timeout")):
+            result = _try_expand_shortener("https://bit.ly/abc123")
+            assert result == "https://bit.ly/abc123"
+
+    def test_returns_original_on_404(self):
+        mock_resp = MagicMock(status_code=404, url="https://bit.ly/abc123")
+        with patch("checkers.website.requests.head", return_value=mock_resp):
+            result = _try_expand_shortener("https://bit.ly/abc123")
+            assert result == "https://bit.ly/abc123"
+
+
 class TestWebsiteChecker:
     def setup_method(self):
         self.checker = WebsiteChecker()
 
     def test_ignores_correct_url(self):
         action = _make_action({"website": "https://example.com"})
-        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u):
+        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u), \
+             patch("checkers.website._try_expand_shortener", side_effect=lambda u: u):
             assert self.checker.check(action) == []
 
     def test_formats_bare_domain(self):
         action = _make_action({"website": "example.com"})
-        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u):
+        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u), \
+             patch("checkers.website._try_expand_shortener", side_effect=lambda u: u):
             issues = self.checker.check(action)
             assert len(issues) == 1
             assert issues[0].tags_after["website"] == "https://example.com"
 
     def test_strips_tracking_params(self):
         action = _make_action({"website": "https://example.com?utm_source=x"})
-        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u):
+        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u), \
+             patch("checkers.website._try_expand_shortener", side_effect=lambda u: u):
             issues = self.checker.check(action)
             assert len(issues) == 1
             assert "utm_source" not in issues[0].tags_after["website"]
 
     def test_checks_contact_website(self):
         action = _make_action({"contact:website": "example.com"})
-        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u):
+        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u), \
+             patch("checkers.website._try_expand_shortener", side_effect=lambda u: u):
             issues = self.checker.check(action)
             assert len(issues) == 1
             assert "contact:website" in issues[0].tags_after
 
     def test_checks_url_tag(self):
         action = _make_action({"url": "example.com"})
-        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u):
+        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u), \
+             patch("checkers.website._try_expand_shortener", side_effect=lambda u: u):
             issues = self.checker.check(action)
             assert len(issues) == 1
 
     def test_skips_trailing_slash_only(self):
         """Removing trailing slash alone is too minor."""
         action = _make_action({"website": "https://www.qmpizza.com/"})
-        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u):
+        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u), \
+             patch("checkers.website._try_expand_shortener", side_effect=lambda u: u):
             assert self.checker.check(action) == []
 
     def test_keeps_http_to_https_upgrade(self):
         """HTTP→HTTPS is significant even if it's a small text change."""
         action = _make_action({"website": "http://example.com"})
-        with patch("checkers.website._try_https_upgrade", return_value="https://example.com"):
+        with patch("checkers.website._try_https_upgrade", return_value="https://example.com"), \
+             patch("checkers.website._try_expand_shortener", side_effect=lambda u: u):
             issues = self.checker.check(action)
             assert len(issues) == 1
             assert issues[0].tags_after["website"] == "https://example.com"
@@ -257,28 +287,32 @@ class TestWebsiteChecker:
 
     def test_flags_google_copy_gmb(self):
         action = _make_action({"website": "https://example.com?utm_source=gmb&utm_medium=organic"})
-        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u):
+        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u), \
+             patch("checkers.website._try_expand_shortener", side_effect=lambda u: u):
             issues = self.checker.check(action)
             assert len(issues) == 1
             assert issues[0].extra.get("google_copy") is True
 
     def test_flags_google_copy_yxt_goog(self):
         action = _make_action({"website": "https://example.com?utm_source=yxt-goog&utm_medium=local"})
-        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u):
+        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u), \
+             patch("checkers.website._try_expand_shortener", side_effect=lambda u: u):
             issues = self.checker.check(action)
             assert len(issues) == 1
             assert issues[0].extra.get("google_copy") is True
 
     def test_no_google_copy_flag_for_normal_utm(self):
         action = _make_action({"website": "https://example.com?utm_source=twitter"})
-        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u):
+        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u), \
+             patch("checkers.website._try_expand_shortener", side_effect=lambda u: u):
             issues = self.checker.check(action)
             assert len(issues) == 1
             assert issues[0].extra.get("google_copy") is None
 
     def test_issue_fields(self):
         action = _make_action({"website": "example.com"})
-        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u):
+        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u), \
+             patch("checkers.website._try_expand_shortener", side_effect=lambda u: u):
             issues = self.checker.check(action)
             issue = issues[0]
             assert issue.check_name == "website_cleanup"

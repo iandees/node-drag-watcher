@@ -23,11 +23,55 @@ WEBSITE_TAG_PATTERN = re.compile(
 
 # Query params to strip
 TRACKING_PARAMS = {
+    # Google Ads / Analytics
+    "gclid", "gclsrc", "gad_source", "gad_campaignid",
+    "gbraid", "wbraid", "dclid",
+    "_ga", "_gac", "_gl", "_gid",
+    # UTM (catch-all for utm_* is in the filter below, but list common ones here too)
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
-    "fbclid", "gclid", "gclsrc", "gad_source", "gad_campaignid",
-    "igsh", "mc_cid", "mc_eid", "ref",
-    "y_source", "srsltid",
-    "otppartnerid", "campaignid",
+    "utm_id", "utm_source_platform", "utm_creative_format", "utm_marketing_tactic",
+    # Facebook / Meta
+    "fbclid", "fb_action_ids", "fb_action_types", "fb_source", "fb_ref",
+    # Microsoft / Bing
+    "msclkid",
+    # Twitter / X
+    "twclid",
+    # TikTok
+    "ttclid",
+    # Instagram
+    "igsh", "igshid",
+    # LinkedIn
+    "li_fat_id",
+    # Pinterest
+    "epik",
+    # Snapchat
+    "sclid",
+    # Adobe / Omniture
+    "s_cid", "s_kwcid",
+    # HubSpot
+    "hsa_cam", "hsa_grp", "hsa_mt", "hsa_src", "hsa_ad", "hsa_acc", "hsa_net", "hsa_kw",
+    "_hsenc", "_hsmi", "__hstc", "__hsfp", "__hssc",
+    # Mailchimp
+    "mc_cid", "mc_eid",
+    # Marketo
+    "mkt_tok",
+    # Klaviyo
+    "_kx",
+    # Drip
+    "__s",
+    # Yandex
+    "yclid", "ymclid", "_openstat",
+    # Yahoo / Verizon
+    "guccounter", "guce_referrer", "guce_referrer_sig",
+    # YouTube / Spotify share tracking
+    "si", "feature",
+    # Matomo / Piwik
+    "mtm_source", "mtm_medium", "mtm_campaign", "mtm_keyword", "mtm_content",
+    "mtm_cid", "mtm_group", "mtm_placement",
+    "pk_source", "pk_medium", "pk_campaign", "pk_keyword", "pk_content",
+    # Misc
+    "ref", "y_source", "srsltid", "otppartnerid", "campaignid",
+    "vero_id", "wickedid",
 }
 
 # utm_source values that indicate URL was copied from Google

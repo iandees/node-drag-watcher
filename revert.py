@@ -353,13 +353,14 @@ def revert_changeset(
             if not is_visible:
                 result.skipped.append(f"node {node_id}: deleted, cannot move")
                 continue
-            # Only revert if current version matches changeset version
+            # If version changed, log it but proceed — we'll rebase onto
+            # the current version (like a git rebase).
             current_version = int(current_elem.get("version"))
             if current_version != cs_version:
-                result.skipped.append(
-                    f"node {node_id}: version changed ({cs_version} → {current_version}), skipping"
+                log.info(
+                    "node %s: version changed (%s → %s), will rebase revert onto current version",
+                    node_id, cs_version, current_version,
                 )
-                continue
             pending_moves.append((node_id, before_elem, current_elem))
 
         else:
@@ -374,10 +375,10 @@ def revert_changeset(
         cs_version = int(found[1].get("version"))
         current_version = int(current_elem.get("version"))
         if current_version != cs_version:
-            result.skipped.append(
-                f"way {way_id}: version changed ({cs_version} → {current_version}), skipping"
+            log.info(
+                "way %s: version changed (%s → %s), will rebase revert onto current version",
+                way_id, cs_version, current_version,
             )
-            continue
         before_refs = _nd_refs(before_elem)
         pending_way_updates.append((way_id, before_refs, current_elem))
 
@@ -389,26 +390,53 @@ def revert_changeset(
     cs_id = create_changeset(osm_token, comment, api_base=api_base)
     result.revert_changeset_id = cs_id
 
+    max_retries = 3
+
     try:
         # Undeletes first (ways may reference these nodes)
         for node_id, before_elem in pending_undeletes:
             lat = float(before_elem.get("lat"))
             lon = float(before_elem.get("lon"))
-            # Use current (deleted) element for version
-            current_elem, _ = fetch_node(node_id, api_base=api_base)
-            undelete_node(osm_token, cs_id, current_elem, lat, lon, api_base=api_base)
+            for attempt in range(max_retries):
+                current_elem, _ = fetch_node(node_id, api_base=api_base)
+                try:
+                    undelete_node(osm_token, cs_id, current_elem, lat, lon, api_base=api_base)
+                    break
+                except ConflictError:
+                    if attempt == max_retries - 1:
+                        raise
+                    log.info("node %s undelete: version conflict, retrying (%d/%d)",
+                             node_id, attempt + 1, max_retries)
             result.nodes_undeleted.append(node_id)
 
-        # Node moves
+        # Node moves — retry on 409 by re-fetching current version
         for node_id, before_elem, current_elem in pending_moves:
             lat = float(before_elem.get("lat"))
             lon = float(before_elem.get("lon"))
-            update_node(osm_token, cs_id, current_elem, lat, lon, api_base=api_base)
+            for attempt in range(max_retries):
+                try:
+                    update_node(osm_token, cs_id, current_elem, lat, lon, api_base=api_base)
+                    break
+                except ConflictError:
+                    if attempt == max_retries - 1:
+                        raise
+                    log.info("node %s move: version conflict, retrying (%d/%d)",
+                             node_id, attempt + 1, max_retries)
+                    current_elem, _ = fetch_node(node_id, api_base=api_base)
             result.nodes_moved.append(node_id)
 
-        # Way updates (restore old nd list)
+        # Way updates (restore old nd list) — retry on 409 by re-fetching
         for way_id, before_refs, current_elem in pending_way_updates:
-            update_way(osm_token, cs_id, current_elem, before_refs, api_base=api_base)
+            for attempt in range(max_retries):
+                try:
+                    update_way(osm_token, cs_id, current_elem, before_refs, api_base=api_base)
+                    break
+                except ConflictError:
+                    if attempt == max_retries - 1:
+                        raise
+                    log.info("way %s update: version conflict, retrying (%d/%d)",
+                             way_id, attempt + 1, max_retries)
+                    current_elem = fetch_way(way_id, api_base=api_base)
             result.ways_updated.append(way_id)
     finally:
         close_changeset(osm_token, cs_id, api_base=api_base)

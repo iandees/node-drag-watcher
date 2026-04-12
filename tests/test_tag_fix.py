@@ -59,8 +59,8 @@ class TestFixTags:
         assert "+1 212-555-1234" in data
         assert "Test Place" in data  # other tags preserved
 
-    def test_version_mismatch_skips(self):
-        """Element edited since detection → skip."""
+    def test_version_mismatch_rebases(self):
+        """Element edited since detection → rebase fix onto current version."""
         current_xml = (
             '<?xml version="1.0" encoding="UTF-8"?>'
             '<osm><node id="123" version="6" lat="40.7" lon="-74.0">'
@@ -69,10 +69,34 @@ class TestFixTags:
         )
         issue = _make_issue(element_version="5")
 
+        with patch("tag_fix.requests") as mock_req, \
+             patch("tag_fix.create_changeset", return_value="12345") as mock_create, \
+             patch("tag_fix.close_changeset") as mock_close:
+            mock_req.get = MagicMock(return_value=_ok(current_xml))
+            mock_req.put = MagicMock(return_value=_ok("7"))
+
+            cs_id = fix_tags("token", [issue])
+
+        assert cs_id == "12345"
+        # Verify the PUT used version 6 (current) with corrected tag
+        data = mock_req.put.call_args[1]["data"]
+        assert 'version="6"' in data
+        assert "+1 212-555-1234" in data
+
+    def test_version_mismatch_already_fixed_skips(self):
+        """Element edited since detection and tag already corrected → skip."""
+        current_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<osm><node id="123" version="6" lat="40.7" lon="-74.0">'
+            '<tag k="phone" v="+1 212-555-1234"/>'
+            '</node></osm>'
+        )
+        issue = _make_issue(element_version="5")
+
         with patch("tag_fix.requests") as mock_req:
             mock_req.get = MagicMock(return_value=_ok(current_xml))
 
-            with pytest.raises(VersionConflictError):
+            with pytest.raises(VersionConflictError, match="nothing to fix"):
                 fix_tags("token", [issue])
 
     def test_merges_multiple_issues_same_element(self):

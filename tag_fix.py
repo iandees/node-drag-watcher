@@ -13,6 +13,7 @@ from checkers import Issue
 from revert import (
     _osm_headers, _check_response, _xml_escape,
     create_changeset, close_changeset,
+    ConflictError,
     DEFAULT_OSM_API_BASE,
 )
 
@@ -112,7 +113,7 @@ def fix_tags(
     for issue in issues:
         grouped.setdefault(element_key(issue), []).append(issue)
 
-    # Verify versions and collect merged updates
+    # Verify tags still need fixing and collect merged updates
     updates: list[tuple[str, str, ET.Element, dict[str, str]]] = []
 
     for (etype, eid), element_issues in grouped.items():
@@ -120,30 +121,55 @@ def fix_tags(
         current_version = elem.get("version")
         expected_version = element_issues[0].element_version
         if current_version != expected_version:
-            raise VersionConflictError(
-                f"{etype} {eid}: version {expected_version} → {current_version}"
+            log.info(
+                "%s %s: version changed (%s → %s), will rebase tag fix onto current version",
+                etype, eid, expected_version, current_version,
             )
-        # Merge all tag updates for this element
+
+        # Check if the tags we want to fix still have the "before" values.
+        # If they already have the "after" values, someone else fixed them.
+        current_tags = {tag.get("k"): tag.get("v") for tag in elem.findall("tag")}
         merged_tags: dict[str, str] = {}
         for issue in element_issues:
-            merged_tags.update(issue.tags_after)
-        updates.append((etype, eid, elem, merged_tags))
+            for key, after_val in issue.tags_after.items():
+                current_val = current_tags.get(key)
+                if current_val == after_val:
+                    log.info("%s %s: tag %s already has correct value, skipping", etype, eid, key)
+                    continue
+                merged_tags[key] = after_val
+
+        if merged_tags:
+            updates.append((etype, eid, elem, merged_tags))
+
+    if not updates:
+        raise VersionConflictError("All tags already have correct values, nothing to fix")
 
     # Build changeset comment from check names
     check_names = list(dict.fromkeys(i.check_name for i in issues if i.check_name))
     comment = f"Fix tag formatting ({', '.join(check_names or ['tags'])})"
     cs_id = create_changeset(osm_token, comment, api_base=api_base)
 
+    max_retries = 3
+
     try:
         for etype, eid, elem, tag_updates in updates:
-            xml = _build_element_xml(elem, cs_id, tag_updates)
-            resp = requests.put(
-                f"{api_base}/{etype}/{eid}",
-                data=xml,
-                headers=_osm_headers(osm_token),
-                timeout=15,
-            )
-            _check_response(resp, f"update {etype} {eid}")
+            for attempt in range(max_retries):
+                xml = _build_element_xml(elem, cs_id, tag_updates)
+                resp = requests.put(
+                    f"{api_base}/{etype}/{eid}",
+                    data=xml,
+                    headers=_osm_headers(osm_token),
+                    timeout=15,
+                )
+                try:
+                    _check_response(resp, f"update {etype} {eid}")
+                    break
+                except ConflictError:
+                    if attempt == max_retries - 1:
+                        raise
+                    log.info("%s %s: version conflict, retrying (%d/%d)",
+                             etype, eid, attempt + 1, max_retries)
+                    elem = _fetch_element(etype, eid, api_base)
     finally:
         close_changeset(osm_token, cs_id, api_base=api_base)
 

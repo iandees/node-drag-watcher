@@ -192,8 +192,8 @@ class TestNodeMoveRevert:
         assert result.nodes_moved == ["42"]
         assert result.skipped == []
 
-    def test_already_edited_skipped(self):
-        """Node version changed since changeset → skipped."""
+    def test_version_conflict_rebases(self):
+        """Node version changed since changeset → revert rebases onto current version."""
         osmchange = _osmchange_xml([
             ("modify", '<node id="42" version="5" lat="51.1" lon="-1.1"/>'),
         ])
@@ -206,12 +206,28 @@ class TestNodeMoveRevert:
                 "node/42/4": _ok(node_v4),
                 "node/42": _ok(current_node),
             }))
+            mock_req.put = MagicMock(side_effect=_make_put_router({
+                "changeset/create": _ok("12345"),
+                "node/42": _ok("7"),
+                "changeset/12345/close": _ok(),
+            }))
 
-            with pytest.raises(AlreadyRevertedError):
-                revert_changeset(
-                    "token", "999", "Revert",
-                    node_ids=["42"], way_ids=[],
-                )
+            result = revert_changeset(
+                "token", "999", "Revert",
+                node_ids=["42"], way_ids=[],
+            )
+
+        assert result.nodes_moved == ["42"]
+        # Verify the PUT used version 6 (current), not version 5 (changeset)
+        node_put_calls = [
+            c for c in mock_req.put.call_args_list
+            if "node/42" in c[0][0] and "changeset" not in c[0][0]
+        ]
+        assert len(node_put_calls) == 1
+        data = node_put_calls[0][1]["data"]
+        assert 'version="6"' in data
+        assert 'lat="51.0"' in data
+        assert 'lon="-1.0"' in data
 
     def test_preserves_tags(self):
         """Node update should include original tags from before version."""
@@ -324,8 +340,8 @@ class TestWayRevert:
         assert 'ref="3"' in data
         assert 'ref="200"' not in data
 
-    def test_way_already_edited_skipped(self):
-        """Way version changed since changeset → skipped."""
+    def test_way_version_conflict_rebases(self):
+        """Way version changed since changeset → revert rebases onto current version."""
         osmchange = _osmchange_xml([
             ("modify", '<way id="111" version="3"><nd ref="1"/><nd ref="200"/><nd ref="3"/></way>'),
         ])
@@ -338,12 +354,28 @@ class TestWayRevert:
                 "way/111/2": _ok(way_v2),
                 "way/111": _ok(current_way),
             }))
+            mock_req.put = MagicMock(side_effect=_make_put_router({
+                "changeset/create": _ok("12345"),
+                "way/111": _ok("5"),
+                "changeset/12345/close": _ok(),
+            }))
 
-            with pytest.raises(AlreadyRevertedError):
-                revert_changeset(
-                    "token", "999", "Revert",
-                    node_ids=[], way_ids=["111"],
-                )
+            result = revert_changeset(
+                "token", "999", "Revert",
+                node_ids=[], way_ids=["111"],
+            )
+
+        assert result.ways_updated == ["111"]
+        # Verify the PUT used version 4 (current), not version 3 (changeset)
+        way_put_calls = [
+            c for c in mock_req.put.call_args_list
+            if "way/111" in c[0][0] and "changeset" not in c[0][0]
+        ]
+        assert len(way_put_calls) == 1
+        data = way_put_calls[0][1]["data"]
+        assert 'version="4"' in data
+        assert 'ref="100"' in data
+        assert 'ref="200"' not in data
 
     def test_way_preserves_tags(self):
         """Way update preserves tags."""
@@ -529,18 +561,23 @@ class TestSafetyErrors:
                 )
 
     def test_no_changeset_when_nothing_to_do(self):
-        """No changeset created when everything already reverted."""
+        """No changeset created when node was deleted (cannot move)."""
         osmchange = _osmchange_xml([
             ("modify", '<node id="42" version="5" lat="51.1" lon="-1.1"/>'),
         ])
         node_v4 = _node_xml("42", "4", "51.0", "-1.0")
-        current_node = _node_xml("42", "6", "51.2", "-1.2")  # different version
+        # Node was deleted by someone else — API returns 410
+        deleted_history = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<osm><node id="42" version="6" visible="false"/></osm>'
+        )
 
         with patch("revert.requests") as mock_req:
             mock_req.get = MagicMock(side_effect=_make_router({
                 "changeset/999/download": _ok(osmchange),
+                "node/42/history": _ok(deleted_history),
                 "node/42/4": _ok(node_v4),
-                "node/42": _ok(current_node),
+                "node/42": _ok(status=410),
             }))
             mock_req.put = MagicMock()
 
@@ -650,3 +687,77 @@ class TestOrdering:
         node42_idx = next(i for i, u in enumerate(element_urls) if "node/42" in u)
         way111_idx = next(i for i, u in enumerate(element_urls) if "way/111" in u)
         assert node100_idx < node42_idx < way111_idx
+
+
+# ==============================================================================
+# HTTP 409 retry tests
+# ==============================================================================
+
+class TestConflictRetry:
+    def test_node_move_retries_on_409(self):
+        """Node move retries with fresh version after HTTP 409."""
+        osmchange = _osmchange_xml([
+            ("modify", '<node id="42" version="5" lat="51.1" lon="-1.1"/>'),
+        ])
+        node_v4 = _node_xml("42", "4", "51.0", "-1.0")
+        current_v5 = _node_xml("42", "5", "51.1", "-1.1")
+        current_v6 = _node_xml("42", "6", "51.1", "-1.1")  # updated by someone else
+
+        conflict_resp = MagicMock(status_code=409, ok=False, text="Version mismatch")
+
+        with patch("revert.requests") as mock_req:
+            mock_req.get = MagicMock(side_effect=_make_router({
+                "changeset/999/download": _ok(osmchange),
+                "node/42/4": _ok(node_v4),
+                # First fetch returns v5, retry fetch returns v6
+                "node/42": [_ok(current_v5), _ok(current_v6)],
+            }))
+            mock_req.put = MagicMock(side_effect=_make_put_router({
+                "changeset/create": _ok("12345"),
+                # First PUT fails with 409, second succeeds
+                "node/42": [conflict_resp, _ok("7")],
+                "changeset/12345/close": _ok(),
+            }))
+
+            result = revert_changeset(
+                "token", "999", "Revert",
+                node_ids=["42"], way_ids=[],
+            )
+
+        assert result.nodes_moved == ["42"]
+        # Should have made 2 PUT calls for the node (409 + success)
+        node_put_calls = [
+            c for c in mock_req.put.call_args_list
+            if "node/42" in c[0][0] and "changeset" not in c[0][0]
+        ]
+        assert len(node_put_calls) == 2
+        # Second call should use version 6
+        data = node_put_calls[1][1]["data"]
+        assert 'version="6"' in data
+
+    def test_node_move_raises_after_max_retries(self):
+        """Node move raises ConflictError after exhausting retries."""
+        osmchange = _osmchange_xml([
+            ("modify", '<node id="42" version="5" lat="51.1" lon="-1.1"/>'),
+        ])
+        node_v4 = _node_xml("42", "4", "51.0", "-1.0")
+        current_node = _node_xml("42", "5", "51.1", "-1.1")
+        conflict_resp = MagicMock(status_code=409, ok=False, text="Version mismatch")
+
+        with patch("revert.requests") as mock_req:
+            mock_req.get = MagicMock(side_effect=_make_router({
+                "changeset/999/download": _ok(osmchange),
+                "node/42/4": _ok(node_v4),
+                "node/42": _ok(current_node),
+            }))
+            mock_req.put = MagicMock(side_effect=_make_put_router({
+                "changeset/create": _ok("12345"),
+                "node/42": [conflict_resp, conflict_resp, conflict_resp],
+                "changeset/12345/close": _ok(),
+            }))
+
+            with pytest.raises(ConflictError):
+                revert_changeset(
+                    "token", "999", "Revert",
+                    node_ids=["42"], way_ids=[],
+                )

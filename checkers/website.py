@@ -167,8 +167,8 @@ def _normalize_url(raw: str) -> str | None:
 
     parsed = urlparse(stripped)
 
-    # Lowercase domain
-    netloc = parsed.netloc.lower()
+    # Lowercase domain; strip stray leading dots (e.g. "http:.example.com")
+    netloc = parsed.netloc.lower().lstrip(".")
 
     # Strip tracking params
     if parsed.query:

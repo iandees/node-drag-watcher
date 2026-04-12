@@ -144,6 +144,11 @@ class TestNormalizeUrl:
         assert _normalize_url("HTTP://example.com") == "http://example.com"
         assert _normalize_url("Https://example.com") == "https://example.com"
 
+    def test_fixes_colon_dot_scheme(self):
+        """Slashes replaced by a dot: 'http:.example.com' → 'http://example.com'."""
+        assert _normalize_url("http:.casanana.de") == "http://casanana.de"
+        assert _normalize_url("https:.example.com") == "https://example.com"
+
     def test_fixes_bare_scheme_separator(self):
         """URLs starting with :// or // should get https:// prefix."""
         assert _normalize_url("://www.theatrecreanova.be") == "https://www.theatrecreanova.be"

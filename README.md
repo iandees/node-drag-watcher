@@ -17,7 +17,7 @@ Two drag patterns are detected:
 
 Checkers run on every element in the diff stream and flag tags that need fixing:
 
-- **Website cleanup** — Adds missing scheme, lowercases domain, strips tracking parameters (utm_*, fbclid, gclid, y_source, etc.), fixes doubled/truncated schemes, upgrades HTTP to HTTPS when possible. URLs copied from Google Maps (detected via `utm_source=gmb` and similar) trigger a changeset comment reminding the mapper not to copy from Google.
+- **Website cleanup** — Adds missing scheme, lowercases domain, strips tracking parameters (utm_*, fbclid, gclid, y_source, etc.), fixes doubled/truncated schemes, expands known URL shorteners (bit.ly, tinyurl.com, acortar.link, etc.), upgrades HTTP to HTTPS when possible. URLs copied from Google Maps (detected via `utm_source=gmb` and similar) trigger a changeset comment reminding the mapper not to copy from Google.
 - **Phone formatting** — Flags phone numbers missing a country code.
 
 ## Architecture
@@ -31,7 +31,7 @@ Plugin-based checker system. The main entry point (`watcher.py`) polls the OSM a
 | `watcher.py` | CLI entry point, polling loop, adiff XML parsing, orchestration |
 | `checkers/__init__.py` | Base classes: `Action`, `Issue`, `BaseChecker` |
 | `checkers/drag.py` | Node drag detection (classic drags + node substitutions), angle-based filtering |
-| `checkers/website.py` | URL normalization: scheme fixes, domain lowercasing, tracking param stripping, HTTPS upgrade |
+| `checkers/website.py` | URL normalization: scheme fixes, domain lowercasing, tracking param stripping, shortener expansion, HTTPS upgrade |
 | `checkers/phone.py` | Phone number formatting using `phonenumbers` library |
 | `tag_fix.py` | Apply tag corrections back to OSM via API |
 | `revert.py` | Changeset revert logic, OSM API interaction |

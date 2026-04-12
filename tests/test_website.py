@@ -245,6 +245,15 @@ class TestTryExpandShortener:
             result = _try_expand_shortener("https://bit.ly/abc123")
             assert result == "https://bit.ly/abc123"
 
+    def test_expands_acortar_link(self):
+        mock_resp = MagicMock(
+            status_code=200,
+            url="https://www.canva.com/design/DAGRpImDix4/view?utm_content=DAGRpImDix4&utm_campaign=designshare&utm_medium=link&utm_source=editor",
+        )
+        with patch("checkers.website.requests.head", return_value=mock_resp):
+            result = _try_expand_shortener("https://acortar.link/uUcK1o")
+            assert result == "https://www.canva.com/design/DAGRpImDix4/view?utm_content=DAGRpImDix4&utm_campaign=designshare&utm_medium=link&utm_source=editor"
+
 
 class TestWebsiteChecker:
     def setup_method(self):
@@ -334,6 +343,19 @@ class TestWebsiteChecker:
             issues = self.checker.check(action)
             assert len(issues) == 1
             assert issues[0].extra.get("google_copy") is None
+
+    def test_expands_shortener_and_strips_tracking_params(self):
+        """Shortener expansion + normalization should strip utm_* params from the resolved URL."""
+        action = _make_action({"website": "https://acortar.link/uUcK1o"})
+        mock_resp = MagicMock(
+            status_code=200,
+            url="https://www.canva.com/design/DAGRpImDix4/view?utm_content=DAGRpImDix4&utm_campaign=designshare&utm_medium=link&utm_source=editor",
+        )
+        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u), \
+             patch("checkers.website.requests.head", return_value=mock_resp):
+            issues = self.checker.check(action)
+            assert len(issues) == 1
+            assert issues[0].tags_after["website"] == "https://www.canva.com/design/DAGRpImDix4/view"
 
     def test_issue_fields(self):
         action = _make_action({"website": "example.com"})

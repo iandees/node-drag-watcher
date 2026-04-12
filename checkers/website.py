@@ -51,6 +51,7 @@ URL_SHORTENER_DOMAINS = {
     "amzn.to",
     "fb.me",
     "tiny.cc",
+    "acortar.link",
 }
 
 # Query params to strip

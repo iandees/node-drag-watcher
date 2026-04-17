@@ -106,6 +106,21 @@ class TestExpandStreet:
     def test_mixed_case(self):
         assert _expand_street("Tyler St Ne") == "Tyler Street Northeast"
 
+    # --- Trailing period handling ---
+
+    def test_expand_st_with_period(self):
+        assert _expand_street("Main St.") == "Main Street"
+
+    def test_expand_st_period_with_direction(self):
+        assert _expand_street("Main St. S") == "Main Street South"
+
+    def test_expand_ave_with_period(self):
+        assert _expand_street("5th Ave.") == "5th Avenue"
+
+    def test_st_period_first_word_not_expanded(self):
+        """St. as first word (Saint) should not be expanded."""
+        assert _expand_street("St. Louis Road") is None
+
 
 class TestAddrStreetChecker:
     def setup_method(self):

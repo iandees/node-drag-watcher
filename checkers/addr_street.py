@@ -83,7 +83,9 @@ def _expand_street(street: str) -> str | None:
     result = []
 
     for i, word in enumerate(words):
-        upper = word.upper()
+        # Strip trailing period (e.g. "St." → "St") for lookup
+        stripped = word.rstrip(".")
+        upper = stripped.upper()
         is_first = i == 0
         is_last = i == len(words) - 1
 

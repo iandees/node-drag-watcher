@@ -19,6 +19,7 @@ from checkers.drag import (
 from checkers.phone import PhoneChecker
 from checkers.tag_typo import TagTypoChecker
 from checkers.website import WebsiteChecker
+from checkers.addr_street import AddrStreetChecker
 from notifiers.slack import (
     send_slack_summary,
     send_tag_issue_summary,
@@ -241,7 +242,7 @@ def write_state(state_file, seq):
         f.write(str(seq))
 
 
-_tag_checkers = [PhoneChecker(), WebsiteChecker(), TagTypoChecker()]
+_tag_checkers = [PhoneChecker(), WebsiteChecker(), TagTypoChecker(), AddrStreetChecker()]
 
 # created_by prefixes and comment keywords that indicate a revert/fix changeset
 _REVERT_CREATED_BY = ("reverter_plugin", "node-drag-watcher", "osm-revert")

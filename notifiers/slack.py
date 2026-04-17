@@ -356,6 +356,7 @@ def _format_tag_issue_text(issues: list[Issue], changeset: str, user: str) -> st
     check_labels = {
         "phone_format": ":telephone_receiver: Phone formatting",
         "website_cleanup": ":globe_with_meridians: Website cleanup",
+        "addr_street_abbrev": ":round_pushpin: Street name expansion",
     }
 
     # Collect unique check types for the header

@@ -371,9 +371,19 @@ def _format_tag_issue_text(issues: list[Issue], changeset: str, user: str) -> st
 
     for issue in issues:
         elem_link = f"<https://www.openstreetmap.org/{issue.element_type}/{issue.element_id}|{issue.element_type}/{issue.element_id}>"
-        for tag_key, before in issue.tags_before.items():
-            after = issue.tags_after.get(tag_key, before)
-            lines.append(f"• {elem_link} `{tag_key}`: `{before}` → `{after}`")
+        before_keys = set(issue.tags_before)
+        after_keys = set(issue.tags_after)
+        if before_keys != after_keys:
+            # Key rename (e.g. tag typo fix): show key change
+            for old_key in issue.tags_before:
+                val = issue.tags_before[old_key]
+                new_key = next((k for k in after_keys if k not in before_keys), old_key)
+                lines.append(f"• {elem_link} `{old_key}`=`{val}` → `{new_key}`=`{val}`")
+        else:
+            # Value change (same keys): show value change
+            for tag_key, before in issue.tags_before.items():
+                after = issue.tags_after.get(tag_key, before)
+                lines.append(f"• {elem_link} `{tag_key}`: `{before}` → `{after}`")
 
     if any(i.extra.get("google_copy") for i in issues):
         lines.append("")
@@ -402,6 +412,8 @@ def build_tag_issue_blocks(issues: list[Issue], changeset: str, user: str) -> tu
                 "element_type": i.element_type,
                 "element_id": i.element_id,
                 "element_version": i.element_version,
+                "check_name": i.check_name,
+                "summary": i.summary,
                 "tags_before": i.tags_before,
                 "tags_after": i.tags_after,
             }
@@ -473,8 +485,8 @@ def handle_tag_fix_action(ack: Callable, body: dict, client: object, osm_token: 
             element_version=i["element_version"],
             changeset=value["changeset"],
             user="",
-            check_name="",
-            summary="",
+            check_name=i.get("check_name", ""),
+            summary=i.get("summary", ""),
             tags_before=i["tags_before"],
             tags_after=i["tags_after"],
         )

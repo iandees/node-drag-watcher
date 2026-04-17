@@ -154,9 +154,15 @@ def fix_tags(
     if not updates:
         raise VersionConflictError("All tags already have correct values, nothing to fix")
 
-    # Build changeset comment from check names
+    # Build changeset comment from check types
+    check_descriptions = {
+        "phone_format": "Improve phone number formatting",
+        "website_cleanup": "Clean up website URLs",
+        "tag_typo": "Fix misspelled tag keys",
+    }
     check_names = list(dict.fromkeys(i.check_name for i in issues if i.check_name))
-    comment = f"Fix tag formatting ({', '.join(check_names or ['tags'])})"
+    parts = [check_descriptions.get(cn, f"Fix {cn}") for cn in check_names]
+    comment = "; ".join(parts) if parts else "Fix tags"
     cs_id = create_changeset(osm_token, comment, api_base=api_base)
 
     max_retries = 3

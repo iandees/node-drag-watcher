@@ -165,6 +165,27 @@ class TestFixTags:
         assert "builidng" not in data
         assert "Test Place" in data
 
+    def test_changeset_comment_includes_summaries(self):
+        """Changeset comment should describe what was actually changed."""
+        current_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<osm><node id="123" version="5" lat="40.7" lon="-74.0">'
+            '<tag k="phone" v="2125551234"/>'
+            '</node></osm>'
+        )
+        issue = _make_issue()
+
+        with patch("tag_fix.requests") as mock_req, \
+             patch("tag_fix.create_changeset", return_value="777") as mock_create, \
+             patch("tag_fix.close_changeset"):
+            mock_req.get = MagicMock(return_value=_ok(current_xml))
+            mock_req.put = MagicMock(return_value=_ok("6"))
+
+            fix_tags("token", [issue])
+
+        comment = mock_create.call_args[0][1]
+        assert comment == "Improve phone number formatting"
+
     def test_way_element(self):
         """Works for ways too."""
         current_xml = (

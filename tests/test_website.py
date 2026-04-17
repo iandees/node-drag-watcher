@@ -373,3 +373,68 @@ class TestWebsiteChecker:
             assert issue.element_id == "123"
             assert issue.changeset == "999"
             assert issue.tags_before == {"website": "example.com"}
+
+    def test_detects_email_in_website(self):
+        """Email address in website tag should move to email tag."""
+        action = _make_action({"website": "info@fahrschulelions.de"})
+        issues = self.checker.check(action)
+        assert len(issues) == 1
+        assert issues[0].check_name == "email_in_website"
+        assert issues[0].tags_before == {"website": "info@fahrschulelions.de"}
+        assert issues[0].tags_after == {"email": "info@fahrschulelions.de"}
+
+    def test_detects_email_in_contact_website(self):
+        """Email in contact:website should move to contact:email."""
+        action = _make_action({"contact:website": "info@example.com"})
+        issues = self.checker.check(action)
+        assert len(issues) == 1
+        assert issues[0].tags_after == {"contact:email": "info@example.com"}
+
+    def test_detects_email_with_mailto_prefix(self):
+        """mailto: prefix should be stripped when moving to email tag."""
+        action = _make_action({"website": "mailto:info@example.com"})
+        issues = self.checker.check(action)
+        assert len(issues) == 1
+        assert issues[0].tags_after == {"email": "info@example.com"}
+
+    def test_skips_email_if_email_tag_exists(self):
+        """Don't move email if element already has an email tag."""
+        action = _make_action({
+            "website": "info@example.com",
+            "email": "other@example.com",
+        })
+        issues = self.checker.check(action)
+        assert len(issues) == 0
+
+    def test_skips_email_if_contact_email_exists(self):
+        """Don't move contact:website email if contact:email already exists."""
+        action = _make_action({
+            "contact:website": "info@example.com",
+            "contact:email": "other@example.com",
+        })
+        issues = self.checker.check(action)
+        assert len(issues) == 0
+
+    def test_email_in_url_tag(self):
+        """Email in url tag should move to email tag."""
+        action = _make_action({"url": "info@example.com"})
+        issues = self.checker.check(action)
+        assert len(issues) == 1
+        assert issues[0].tags_after == {"email": "info@example.com"}
+
+    def test_no_email_detection_for_semicolon_list(self):
+        """Semicolon-separated list with email mixed in should not trigger email detection."""
+        action = _make_action({"website": "https://example.com;info@example.com"})
+        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u), \
+             patch("checkers.website._try_expand_shortener", side_effect=lambda u: u):
+            issues = self.checker.check(action)
+            # Should be treated as a URL cleanup, not an email move
+            assert all(i.check_name != "email_in_website" for i in issues)
+
+    def test_no_email_detection_for_urlified_email(self):
+        """An email that was already turned into a URL (https://user@host) should not match email detection."""
+        action = _make_action({"website": "https://info@fahrschulelions.de"})
+        with patch("checkers.website._try_https_upgrade", side_effect=lambda u: u), \
+             patch("checkers.website._try_expand_shortener", side_effect=lambda u: u):
+            issues = self.checker.check(action)
+            assert all(i.check_name != "email_in_website" for i in issues)

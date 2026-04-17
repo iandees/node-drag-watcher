@@ -21,6 +21,17 @@ WEBSITE_TAG_PATTERN = re.compile(
     r'^(website|url|contact:website)(:.+)?$'
 )
 
+# Simple email pattern: something@something.something
+# Excludes ;:/ to avoid matching URLs (https://user@host) or semicolon-separated lists
+EMAIL_PATTERN = re.compile(r'^[^@\s;:/]+@[^@\s;:/]+\.[^@\s;:/]+$')
+
+# Map website tag keys to the corresponding email tag key
+WEBSITE_TO_EMAIL_TAG = {
+    "website": "email",
+    "url": "email",
+    "contact:website": "contact:email",
+}
+
 # Redirect/tracking wrapper URL patterns.
 # Each entry is (domain regex, query param holding the real URL).
 REDIRECT_UNWRAPPERS = [
@@ -261,6 +272,32 @@ class WebsiteChecker(BaseChecker):
 
             # Skip tags that weren't changed in this edit
             if action.tags_old.get(tag_key) == tag_value:
+                continue
+
+            # Detect email addresses in website tags and move to email tag
+            stripped_value = tag_value.strip()
+            # Strip mailto: prefix if present
+            if stripped_value.lower().startswith("mailto:"):
+                stripped_value = stripped_value[7:].strip()
+            if EMAIL_PATTERN.match(stripped_value):
+                # Determine target email tag key
+                base_key = WEBSITE_TAG_PATTERN.match(tag_key).group(1)
+                suffix = WEBSITE_TAG_PATTERN.match(tag_key).group(2) or ""
+                email_key = WEBSITE_TO_EMAIL_TAG.get(base_key, "email") + suffix
+                # Skip if element already has the target email tag
+                if email_key in action.tags_new:
+                    continue
+                issues.append(Issue(
+                    element_type=action.element_type,
+                    element_id=action.element_id,
+                    element_version=action.version,
+                    changeset=action.changeset,
+                    user=action.user,
+                    check_name="email_in_website",
+                    summary=f"{tag_key}: {tag_value} → move to {email_key}",
+                    tags_before={tag_key: tag_value},
+                    tags_after={email_key: stripped_value},
+                ))
                 continue
 
             # Check for Google-copied URL before normalization strips params

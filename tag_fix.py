@@ -158,6 +158,7 @@ def fix_tags(
     check_descriptions = {
         "phone_format": "Improve phone number formatting",
         "website_cleanup": "Clean up website URLs",
+        "email_in_website": "Move email addresses from website to email tag",
         "tag_typo": "Fix misspelled tag keys",
     }
     check_names = list(dict.fromkeys(i.check_name for i in issues if i.check_name))

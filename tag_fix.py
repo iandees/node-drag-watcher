@@ -44,20 +44,25 @@ def _fetch_element(element_type: str, element_id: str,
 
 
 def _build_element_xml(elem: ET.Element, cs_id: str,
-                       tag_updates: dict[str, str]) -> str:
+                       tag_updates: dict[str, str],
+                       keys_to_remove: set[str] | None = None) -> str:
     """Build XML for updating an element with corrected tags.
 
     Preserves all existing tags, geometry, and nd refs,
-    only replacing tags that are in tag_updates.
+    only replacing tags that are in tag_updates and removing
+    keys in keys_to_remove (for key renames like typo fixes).
     """
     element_type = elem.tag
     element_id = elem.get("id")
     version = elem.get("version")
 
-    # Build tags: merge updates into existing
+    # Build tags: merge updates into existing, remove old keys
     tags = {}
     for tag in elem.findall("tag"):
-        tags[tag.get("k")] = tag.get("v")
+        k = tag.get("k")
+        if keys_to_remove and k in keys_to_remove:
+            continue
+        tags[k] = tag.get("v")
     tags.update(tag_updates)
 
     tags_xml = "".join(
@@ -114,7 +119,7 @@ def fix_tags(
         grouped.setdefault(element_key(issue), []).append(issue)
 
     # Verify tags still need fixing and collect merged updates
-    updates: list[tuple[str, str, ET.Element, dict[str, str]]] = []
+    updates: list[tuple[str, str, ET.Element, dict[str, str], set[str]]] = []
 
     for (etype, eid), element_issues in grouped.items():
         elem = _fetch_element(etype, eid, api_base)
@@ -130,6 +135,7 @@ def fix_tags(
         # If they already have the "after" values, someone else fixed them.
         current_tags = {tag.get("k"): tag.get("v") for tag in elem.findall("tag")}
         merged_tags: dict[str, str] = {}
+        keys_to_remove: set[str] = set()
         for issue in element_issues:
             for key, after_val in issue.tags_after.items():
                 current_val = current_tags.get(key)
@@ -137,9 +143,13 @@ def fix_tags(
                     log.info("%s %s: tag %s already has correct value, skipping", etype, eid, key)
                     continue
                 merged_tags[key] = after_val
+            # Track old keys that differ from new keys (key renames like typo fixes)
+            for old_key in issue.tags_before:
+                if old_key not in issue.tags_after:
+                    keys_to_remove.add(old_key)
 
         if merged_tags:
-            updates.append((etype, eid, elem, merged_tags))
+            updates.append((etype, eid, elem, merged_tags, keys_to_remove))
 
     if not updates:
         raise VersionConflictError("All tags already have correct values, nothing to fix")
@@ -152,9 +162,9 @@ def fix_tags(
     max_retries = 3
 
     try:
-        for etype, eid, elem, tag_updates in updates:
+        for etype, eid, elem, tag_updates, remove_keys in updates:
             for attempt in range(max_retries):
-                xml = _build_element_xml(elem, cs_id, tag_updates)
+                xml = _build_element_xml(elem, cs_id, tag_updates, remove_keys)
                 resp = requests.put(
                     f"{api_base}/{etype}/{eid}",
                     data=xml,

@@ -135,6 +135,36 @@ class TestFixTags:
         assert "+1 212-555-1234" in data
         assert "https://example.com" in data
 
+    def test_tag_key_rename_removes_old_key(self):
+        """Tag key typo fix should remove old key, not keep both."""
+        current_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<osm><node id="123" version="5" lat="40.7" lon="-74.0">'
+            '<tag k="builidng" v="yes"/>'
+            '<tag k="name" v="Test Place"/>'
+            '</node></osm>'
+        )
+        issue = _make_issue(
+            check_name="tag_typo",
+            summary="builidng=yes → building=yes",
+            tags_before={"builidng": "yes"},
+            tags_after={"building": "yes"},
+            extra={"old_key": "builidng", "new_key": "building"},
+        )
+
+        with patch("tag_fix.requests") as mock_req, \
+             patch("tag_fix.create_changeset", return_value="777"), \
+             patch("tag_fix.close_changeset"):
+            mock_req.get = MagicMock(return_value=_ok(current_xml))
+            mock_req.put = MagicMock(return_value=_ok("6"))
+
+            fix_tags("token", [issue])
+
+        data = mock_req.put.call_args[1]["data"]
+        assert "building" in data
+        assert "builidng" not in data
+        assert "Test Place" in data
+
     def test_way_element(self):
         """Works for ways too."""
         current_xml = (
